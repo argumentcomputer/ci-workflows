@@ -1,4 +1,4 @@
-name: Run code quality checks
+name: Check lints and code quality
 
 on:
   workflow_call:
@@ -7,6 +7,10 @@ jobs:
   wasm-build:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: lurk-lab/ci-workflows
+      - uses: ./.github/actions/ci-env
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
         with:
@@ -17,13 +21,15 @@ jobs:
         run: cargo build --target wasm32-unknown-unknown
 
   # Rustfmt, clippy, and doctests
-  code-quality:
+  lints:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-    env:
-      RUSTFLAGS: -D warnings
     steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: lurk-lab/ci-workflows
+      - uses: ./.github/actions/ci-env
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
         with:
@@ -48,14 +54,18 @@ jobs:
   msrv:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Install rustup
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
-    - uses: Swatinem/rust-cache@v2
-    - name: Install cargo-msrv
-      run: cargo install cargo-msrv
-    - name: Check Rust MSRV
-      run: cargo msrv verify 
+      - uses: actions/checkout@v4
+        with:
+          repository: lurk-lab/ci-workflows
+      - uses: ./.github/actions/ci-env
+      - uses: actions/checkout@v4
+      - name: Install rustup
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-msrv
+        run: cargo install cargo-msrv
+      - name: Check Rust MSRV
+        run: cargo msrv verify 

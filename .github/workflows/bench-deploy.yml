@@ -16,6 +16,13 @@ jobs:
     name: Bench and deploy
     runs-on: [self-hosted, gpu-bench, gh-pages]
     steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: lurk-lab/ci-workflows
+      - uses: ./.github/actions/gpu-setup
+        with:
+          gpu-framework: 'cuda'
+      - uses: ./.github/actions/ci-env
       # Install deps
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1

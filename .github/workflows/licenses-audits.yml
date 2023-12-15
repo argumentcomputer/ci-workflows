@@ -1,10 +1,8 @@
+# Uses deny.toml if found
 name: cargo-deny
 
 on:
   workflow_call:
-
-env:
-  CARGO_TERM_COLOR: always
 
 jobs:
   cargo-deny:

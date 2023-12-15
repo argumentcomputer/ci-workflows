@@ -5,7 +5,7 @@ on:
     inputs:
       # Whether or not to error on failure
       # If false, opens an issue instead
-      fail:
+      fail-fast:
         required: false
         default: true
         type: boolean
@@ -21,11 +21,11 @@ jobs:
       - name: Link Checker
         uses: lycheeverse/lychee-action@v1.8.0
         with:
-          fail: ${{ inputs.fail }}
+          fail: ${{ inputs.fail-fast }}
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
-      - name: Open issue if not failing fast
-        if: env.lychee_exit_code != 0 && inputs.fail != true
+      - name: Open issue on failure if `fail-fast` input is false
+        if: env.lychee_exit_code != 0 && inputs.fail-fast != true
         uses: peter-evans/create-issue-from-file@v4
         with:
           title: Link Checker Report

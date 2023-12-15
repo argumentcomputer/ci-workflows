@@ -1,35 +1,13 @@
 # Run final tests only when attempting to merge, shown as skipped status checks beforehand
-# Only run on `merge_group` trigger
+# Prerequisites
+# - Self-hosted Nvidia GPU runner with `gpu-bench` tag in caller repo
+# - `cuda` and `opencl` Cargo features
+# - Pre-existing `gh-pages` branch
+# - Run on `merge_group` trigger only
 name: Comparative benchmarks on GPU
 
 on:
   workflow_call:
-    inputs:
-      gpu-name:
-        required: false
-        type: string
-
-env:
-  CARGO_TERM_COLOR: always
-  # Disable incremental compilation.
-  #
-  # Incremental compilation is useful as part of an edit-build-test-edit cycle,
-  # as it lets the compiler avoid recompiling code that hasn't changed. However,
-  # on CI, we're not making small edits; we're almost always building the entire
-  # project from scratch. Thus, incremental compilation on CI actually
-  # introduces *additional* overhead to support making future builds
-  # faster...but no future builds will ever occur in any given CI environment.
-  #
-  # See https://matklad.github.io/2021/09/04/fast-rust-builds.html#ci-workflow
-  # for details.
-  CARGO_INCREMENTAL: 0
-  # Allow more retries for network requests in cargo (downloading crates) and
-  # rustup (installing toolchains). This should help to reduce flaky CI failures
-  # from transient network timeouts or other issues.
-  CARGO_NET_RETRY: 10
-  RUSTUP_MAX_RETRIES: 10
-  # Don't emit giant backtraces in the CI logs.
-  RUST_BACKTRACE: short
 
 jobs:
   # Run comparative benchmark against base branch, open issue on regression
@@ -37,11 +15,13 @@ jobs:
     runs-on: [self-hosted, gpu-bench]
     steps:
       # Set up GPU
-      # Check we have access to the machine's Nvidia drivers
-      - run: nvidia-smi
-      # Check that CUDA is installed with a driver-compatible version
-      # This must also be compatible with the GPU architecture, see `CUDA_ARCH` link below
-      - run: nvcc --version
+      - uses: actions/checkout@v4
+        with:
+          repository: lurk-lab/ci-workflows
+      - uses: ./.github/actions/gpu-setup
+        with:
+          gpu-framework: 'cuda'
+      - uses: ./.github/actions/ci-env
       - uses: actions/checkout@v4
       # Install dependencies
       - uses: actions-rs/toolchain@v1
@@ -57,19 +37,8 @@ jobs:
           REPOSITORY_NAME=$(echo '${{ github.repository }}' | awk -F'/' '{ print toupper($2) }')
           echo "${REPOSITORY_NAME}_BENCH_OUTPUT=commit-comment" | tee -a $GITHUB_ENV
           echo "BASE_COMMIT=${{ github.event.merge_group.base_sha }}" | tee -a $GITHUB_ENV
-          GPU_NAME=$(nvidia-smi --query-gpu=gpu_name --format=csv,noheader,nounits | tail -n1)
           echo "GPU_ID=$(echo $GPU_NAME | awk '{ print $NF }')" | tee -a $GITHUB_ENV
-          echo "GPU_NAME=$GPU_NAME" | tee -a $GITHUB_ENV
-          echo "EC_GPU_FRAMEWORK=cuda" | tee -a $GITHUB_ENV
-          # The `compute`/`sm` number corresponds to the Nvidia GPU architecture
-          # In this case, the self-hosted machine uses the Ampere architecture, but we want this to be configurable
-          # See https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/
-          CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | sed 's/\.//g')
-          echo "EC_GPU_CUDA_NVCC_ARGS="--fatbin --gpu-architecture=sm_$CUDA_ARCH --generate-code=arch=compute_$CUDA_ARCH,code=sm_$CUDA_ARCH"
-          echo "CUDA_ARCH=$CUDA_ARCH" | tee -a $GITHUB_ENV
-          env | grep -E "LURK|EC_GPU|CUDA"
       # Checkout gh-pages to check for cached bench result
-      # Errors if gh-pages branch doesn't exist already
       - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
@@ -176,4 +145,3 @@ jobs:
           branch: gh-pages
           commit_message: '[automated] GPU Benchmark from PR #${{ env.PR_NUMBER }}'
           file_pattern: '${{ github.sha }}-${{ env.GPU_ID }}.json'
-

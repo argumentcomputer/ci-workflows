@@ -1,4 +1,4 @@
-name: Docs
+name: Generate and deploy crate docs
 
 on:
   workflow_call:
@@ -8,16 +8,16 @@ jobs:
     name: Generate crate documentation
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+        with:
+          repository: lurk-lab/ci-workflows
+      - uses: ./.github/actions/ci-env
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: nightly
           override: true
-
       - name: Generate documentation
         uses: actions-rs/cargo@v1
         env:
@@ -25,7 +25,6 @@ jobs:
         with:
           command: doc
           args: --workspace --no-deps
-
       - name: Deploy documentation
         uses: peaceiris/actions-gh-pages@v3
         with:

@@ -15,9 +15,11 @@ jobs:
   check-lurk-compiles:
     if: github.event_name == 'pull_request'
     runs-on: ${{ inputs.runner }}
-    env:
-      RUSTFLAGS: -D warnings
     steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: lurk-lab/ci-workflows
+      - uses: ./.github/actions/ci-env
     - uses: actions/checkout@v4
       with:
         path: ${{ github.workspace }}/${{ github.repository }}
