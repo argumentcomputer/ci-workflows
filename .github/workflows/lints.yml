@@ -43,9 +43,9 @@ jobs:
       - name: Check clippy warnings
         run: |
           if $(cargo --list|grep -q xclippy); then 
-            cargo xclippy
+            cargo xclippy -Dwarnings
           else 
-            cargo clippy
+            cargo clippy -Dwarnings
           fi
       - name: Doctests
         run: cargo test --doc --workspace
