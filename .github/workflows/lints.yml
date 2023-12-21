@@ -42,7 +42,7 @@ jobs:
           args: --all -- --check
       - name: Check clippy warnings
         run: |
-          if alias xclippy >/dev/null 2>&1; then 
+          if $(cargo --list|grep -q xclippy); then 
             cargo xclippy
           else 
             cargo clippy
