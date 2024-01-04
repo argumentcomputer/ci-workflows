@@ -1,3 +1,4 @@
+# Sets env vars for either CUDA or CUDA+OpenCL
 name: Nvidia GPU setup
 
 description: Set CUDA/OpenCL-related env vars
@@ -22,14 +23,14 @@ runs:
     - name: Set env vars
       run: |
         echo "GPU_NAME=$(nvidia-smi --query-gpu=gpu_name --format=csv,noheader,nounits | tail -n1)" | tee -a $GITHUB_ENV
+        # The `compute`/`sm` number corresponds to the Nvidia GPU architecture (e.g. Ampere, Ada)
+        # In order to use any GPU with this action, we want this to be configurable
+        # See https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/
+        CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | sed 's/\.//g')
+        echo "EC_GPU_CUDA_NVCC_ARGS=--fatbin --gpu-architecture=sm_$CUDA_ARCH --generate-code=arch=compute_$CUDA_ARCH,code=sm_$CUDA_ARCH" | tee -a $GITHUB_ENV
+        echo "CUDA_ARCH=$CUDA_ARCH" | tee -a $GITHUB_ENV
         if [ "${{ inputs.gpu-framework }}" = "cuda" ];
         then
-          # The `compute`/`sm` number corresponds to the Nvidia GPU architecture (e.g. Ampere, Ada)
-          # In order to use any GPU with this action, we want this to be configurable
-          # See https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/
-          CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | sed 's/\.//g')
-          echo "EC_GPU_CUDA_NVCC_ARGS=--fatbin --gpu-architecture=sm_$CUDA_ARCH --generate-code=arch=compute_$CUDA_ARCH,code=sm_$CUDA_ARCH" | tee -a $GITHUB_ENV
-          echo "CUDA_ARCH=$CUDA_ARCH" | tee -a $GITHUB_ENV
           echo "EC_GPU_FRAMEWORK=cuda" | tee -a $GITHUB_ENV
         else
           # Check that OpenCL is installed correctly
