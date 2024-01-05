@@ -20,27 +20,27 @@ jobs:
         with:
           repository: lurk-lab/ci-workflows
       - uses: ./.github/actions/ci-env
-    - uses: actions/checkout@v4
-      with:
-        path: ${{ github.workspace }}/${{ github.repository }}
-    - uses: actions/checkout@v4
-      with:
-        repository: lurk-lab/lurk-rs
-        path: ${{ github.workspace }}/lurk
-        submodules: recursive
-    - uses: dtolnay/rust-toolchain@stable
-    - uses: Swatinem/rust-cache@v2
-    - name: Patch Cargo.toml
-      working-directory: ${{ github.workspace }}/lurk
-      run: |
-        REPOSITORY_NAME=$(echo ${{ github.repository }} | awk -F'/' '{ print $2 }')
-        echo "[patch.'https://github.com/${{ github.repository }}']" >> Cargo.toml
-        if [ ! -z "${{ inputs.package-name }}" ];
-        then
-          echo " = { path='../$REPOSITORY_NAME', package='${{ inputs.package-name }}' }" >> Cargo.toml
-        else
-          echo " = { path='../$REPOSITORY_NAME' }" >> Cargo.toml
-        fi
-    - name: Check Lurk-rs types don't break spectacularly
-      working-directory: ${{ github.workspace }}/lurk
-      run: cargo check --workspace --tests --benches --examples
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ github.workspace }}/${{ github.repository }}
+      - uses: actions/checkout@v4
+        with:
+          repository: lurk-lab/lurk-rs
+          path: ${{ github.workspace }}/lurk
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Patch Cargo.toml
+        working-directory: ${{ github.workspace }}/lurk
+        run: |
+          REPOSITORY_NAME=$(echo ${{ github.repository }} | awk -F'/' '{ print $2 }')
+          echo "[patch.'https://github.com/${{ github.repository }}']" >> Cargo.toml
+          if [ ! -z "${{ inputs.package-name }}" ];
+          then
+            echo " = { path='../$REPOSITORY_NAME', package='${{ inputs.package-name }}' }" >> Cargo.toml
+          else
+            echo " = { path='../$REPOSITORY_NAME' }" >> Cargo.toml
+          fi
+      - name: Check Lurk-rs types don't break spectacularly
+        working-directory: ${{ github.workspace }}/lurk
+        run: cargo check --workspace --tests --benches --examples
