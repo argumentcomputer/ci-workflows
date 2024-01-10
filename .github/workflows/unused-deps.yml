@@ -25,8 +25,12 @@ jobs:
       # udeps requires nightly
       - uses: dtolnay/rust-toolchain@nightly
       - uses: taiki-e/install-action@cargo-udeps
-      - name: Check for unused dependencies
-        run: cargo udeps --lib --features "${{ inputs.repository }}"
+      # Normally running cargo-udeps requires use of a nightly compiler
+      # In order to have a more stable and less noisy experience, lets instead
+      # opt to use the stable toolchain specified via the 'rust-toolchain' file
+      # and instead enable nightly features via 'RUSTC_BOOTSTRAP'
+      - name: run cargo-udeps
+        run: RUSTC_BOOTSTRAP=1 cargo udeps --lib --features "${{ inputs.repository }}"
       - uses: JasonEtco/create-an-issue@v2
         if: ${{ failure() }}
         env:
