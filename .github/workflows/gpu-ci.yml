@@ -6,19 +6,9 @@ name: GPU CI Tests
 
 on:
   # We expect dependents to call this on `merge_group` and conditionally run with
-  # if: github.event_name != 'pull_request' || github.event.action == 'enqueued' # 
+  # if: github.event_name != 'pull_request' || github.event.action == 'enqueued'
   workflow_call:
     inputs:
-      # Nextest profile specified in `.config/nextest.toml`
-      nextest-profile:
-        required: false
-        default: "default"
-        type: string
-      # Cargo profile specified in `Cargo.toml`
-      cargo-profile:
-        required: false
-        default: "release"
-        type: string
       # comma-separated list of features to run in addition to `cuda`/`opencl`
       features:
         required: false
@@ -45,7 +35,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: CUDA tests
         run: |
-          cargo nextest run --profile ${{ inputs.nextest-profile }} --cargo-profile ${{ inputs.cargo-profile }} --features "cuda,${{ inputs.features }}"
+          cargo nextest run --profile ci --cargo-profile dev-ci --features "cuda,${{ inputs.features }}"
 
   opencl:
     name: Rust tests on OpenCL
@@ -66,4 +56,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: OpenCL tests
         run: |
-          cargo nextest run --profile ${{ inputs.nextest-profile }} --cargo-profile ${{ inputs.cargo-profile }} --features "cuda,opencl,${{ inputs.features }}"
+          cargo nextest run --profile ci --cargo-profile dev-ci --features "cuda,opencl,${{ inputs.features }}"
