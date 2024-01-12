@@ -1,7 +1,7 @@
 # Run final tests only when attempting to merge, shown as skipped status checks beforehand
 # Prerequisites
 # - Self-hosted Nvidia GPU runner with `gpu-bench` tag in caller repo
-# - `cuda` and `opencl` Cargo features
+# - `cuda` Cargo features
 # - Pre-existing `gh-pages` branch
 # - Run on `merge_group` trigger only
 name: Comparative benchmarks on GPU

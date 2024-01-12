@@ -9,6 +9,10 @@ on:
   # if: github.event_name != 'pull_request' || github.event.action == 'enqueued'
   workflow_call:
     inputs:
+      opencl:
+        required: false
+        type: boolean
+        default: false
       # comma-separated list of features to run in addition to `cuda`/`opencl`
       features:
         required: false
@@ -39,6 +43,7 @@ jobs:
 
   opencl:
     name: Rust tests on OpenCL
+    if: ${{ inputs.opencl }}
     runs-on: [self-hosted, gpu-ci]
     steps:
       - uses: actions/checkout@v4
