@@ -35,7 +35,7 @@ jobs:
             echo "VERSION_MISMATCH=true" >> $GITHUB_ENV
           else
             echo "VERSION_MISMATCH=false" >> $GITHUB_ENV
-
+          fi
       - uses: JasonEtco/create-an-issue@v2
         if: env.VERSION_MISMATCH == 'true'
         env:
@@ -43,4 +43,4 @@ jobs:
           WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
           update_existing: true
-          filename: .github/VERSION_CHECK.md
+          filename: .github/templates/VERSION_CHECK.md
