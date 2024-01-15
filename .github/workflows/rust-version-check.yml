@@ -11,6 +11,12 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
       
+      - name: Check out `ci-workflows`
+        uses: actions/checkout@v4
+        with:
+          repository: lurk-lab/ci-workflows
+          path: ci-workflows
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -43,4 +49,4 @@ jobs:
           WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
           update_existing: true
-          filename: .github/templates/VERSION_CHECK.md
+          filename: ci-workflows/.github/templates/VERSION_CHECK.md

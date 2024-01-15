@@ -24,8 +24,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          repository: samuelburnham/ci-workflows
-          ref: fix-template
+          repository: lurk-lab/ci-workflows
           path: ci-workflows
       # udeps requires nightly
       - uses: dtolnay/rust-toolchain@nightly
