@@ -19,12 +19,10 @@ jobs:
           toolchain: nightly
           override: true
       - name: Generate documentation
-        uses: actions-rs/cargo@v1
         env:
           RUSTDOCFLAGS: "--enable-index-page -Zunstable-options"
-        with:
-          command: doc
-          args: --workspace --no-deps
+        run: |
+          cargo doc --workspace --no-deps
       - name: Deploy documentation
         uses: peaceiris/actions-gh-pages@v3
         with:
