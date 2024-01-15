@@ -1,3 +1,4 @@
+# Checks whether Rust version specified in `rust-toolchain.toml` is out of date with latest stable
 name: Rust Version Check
 
 
@@ -14,9 +15,9 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Get Local Rust Version
+      - name: Get latest stable Rust version
         id: get-rust-version
-        run: echo "RUST_VERSION=$(rustc --version | awk '{print $2}')" >> $GITHUB_ENV
+        run: echo "RUST_VERSION=$(rustup check | grep stable | awk '{print $(NF-2)}')" >> $GITHUB_ENV
 
       - name: Parse rust-toolchain.toml
         id: parse-toolchain
@@ -28,7 +29,7 @@ jobs:
             echo "TOOLCHAIN_VERSION=stable" >> $GITHUB_ENV
           fi
 
-      - name: Compare Rust Versions
+      - name: Compare Rust versions
         id: compare-versions
         run: |
           if [[ $TOOLCHAIN_VERSION != "stable" && $TOOLCHAIN_VERSION < $RUST_VERSION ]]; then
