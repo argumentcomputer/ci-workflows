@@ -22,6 +22,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: samuelburnham/ci-workflows
+          ref: fix-template
+          path: ci-workflows
       # udeps requires nightly
       - uses: dtolnay/rust-toolchain@nightly
       - uses: taiki-e/install-action@cargo-udeps
@@ -39,4 +44,4 @@ jobs:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
           update_existing: true
-          filename: .github/templates/UNUSED_DEPS_ISSUE.md
+          filename: ci-workflows/.github/templates/UNUSED_DEPS_ISSUE.md
