@@ -13,16 +13,12 @@ jobs:
           repository: lurk-lab/ci-workflows
       - uses: ./.github/actions/ci-env
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
+      - uses: dtolnay/rust-toolchain@nightly
       - name: Generate documentation
         env:
           RUSTDOCFLAGS: "--enable-index-page -Zunstable-options"
         run: |
-          cargo doc --workspace --no-deps
+          cargo +nightly doc --workspace --no-deps
       - name: Deploy documentation
         uses: peaceiris/actions-gh-pages@v3
         with:
