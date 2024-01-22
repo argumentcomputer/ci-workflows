@@ -13,12 +13,13 @@ jobs:
           repository: lurk-lab/ci-workflows
       - uses: ./.github/actions/ci-env
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
       - name: Generate documentation
         env:
           RUSTDOCFLAGS: "--enable-index-page -Zunstable-options"
+          RUSTC_BOOTSTRAP: 1
         run: |
-          cargo +nightly doc --workspace --no-deps
+          cargo doc --workspace --no-deps
       - name: Deploy documentation
         uses: peaceiris/actions-gh-pages@v3
         with:

@@ -26,8 +26,7 @@ jobs:
         with:
           repository: lurk-lab/ci-workflows
           path: ci-workflows
-      # udeps requires nightly
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@cargo-udeps
       # Normally running cargo-udeps requires use of a nightly compiler
       # In order to have a more stable and less noisy experience, lets instead
