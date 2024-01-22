@@ -1,6 +1,7 @@
 # Checks whether Rust version specified in `rust-toolchain.toml` is out of date with latest stable
+# Compares the full `<major>.<minor>.<patch>` of `rustup show` with `rustup check`
+# This is because the patch version will auto-update if unspecified in `rust-toolchain.toml`
 name: Rust Version Check
-
 
 on:
   workflow_call:
@@ -21,33 +22,29 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Get latest stable Rust version
-        id: get-rust-version
-        run: echo "RUST_VERSION=$(rustup check | grep stable | awk '{print $(NF-2)}')" >> $GITHUB_ENV
-
       - name: Parse rust-toolchain.toml
-        id: parse-toolchain
-        run: |
-          CHANNEL=$(awk -F'\"' '/channel/ {print $2}' rust-toolchain.toml)
-          if [[ $CHANNEL =~ ^[0-9]+\.[0-9]+(\.[0-9])?$ ]]; then
-            echo "TOOLCHAIN_VERSION=$CHANNEL" >> $GITHUB_ENV
-          else
-            echo "TOOLCHAIN_VERSION=stable" >> $GITHUB_ENV
-          fi
+        run: echo "TOOLCHAIN_VERSION=$(rustup show | grep rustc | awk '{ print $2 }')" | tee -a $GITHUB_ENV
+
+      - name: Get latest stable Rust version
+        run: echo "RUST_VERSION=$(rustup check | grep stable | awk '{print $(NF-2)}')" | tee -a $GITHUB_ENV
 
       - name: Compare Rust versions
-        id: compare-versions
         run: |
-          if [[ $TOOLCHAIN_VERSION != "stable" && $TOOLCHAIN_VERSION < $RUST_VERSION ]]; then
-            echo "VERSION_MISMATCH=true" >> $GITHUB_ENV
+          if [[ $TOOLCHAIN_VERSION < $RUST_VERSION ]]; then
+            echo "VERSION_MISMATCH=true" | tee -a $GITHUB_ENV
           else
-            echo "VERSION_MISMATCH=false" >> $GITHUB_ENV
+            echo "VERSION_MISMATCH=false" | tee -a $GITHUB_ENV
           fi
+
+      # Open issue if crate Rust version is out of date with latest stable
       - uses: JasonEtco/create-an-issue@v2
         if: env.VERSION_MISMATCH == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TOOLCHAIN_VERSION: ${{ env.TOOLCHAIN_VERSION }}
+          RUST_VERSION: ${{ env.RUST_VERSION }}
           WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORKFLOW_FILE: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/workflow
         with:
           update_existing: true
           filename: ci-workflows/.github/templates/VERSION_CHECK.md
