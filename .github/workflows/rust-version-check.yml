@@ -1,7 +1,6 @@
 # Checks whether Rust version specified in `rust-toolchain.toml` is out of date with latest stable
 name: Rust Version Check
 
-
 on:
   workflow_call:
 
@@ -23,7 +22,7 @@ jobs:
 
       - name: Get latest stable Rust version
         id: get-rust-version
-        run: echo "RUST_VERSION=$(rustup check | grep stable | awk '{print $(NF-2)}')" >> $GITHUB_ENV
+        run: echo "RUST_VERSION=$(rustup check | grep stable | awk '{print $(NF-2)}'| cut -d '.' -f1,2)" >> $GITHUB_ENV
 
       - name: Parse rust-toolchain.toml
         id: parse-toolchain
