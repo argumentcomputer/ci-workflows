@@ -126,7 +126,7 @@ jobs:
           Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" > ./_body.md
       - name: Open issue on regression
         if: steps.regression-check.outcome == 'failure'
-        uses: peter-evans/create-issue-from-file@v4
+        uses: peter-evans/create-issue-from-file@v5
         with:
           title: ':rotating_light: Performance regression detected for PR #${{ env.PR_NUMBER }}'
           content-filepath: ./_body.md
