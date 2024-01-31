@@ -1,12 +1,18 @@
 # Intended to run on the `push` trigger
+# Pre-requisites
+# - `gh-pages` branch with Pages deployment set up
+# - Ideally some HTML to link to the reports, e.g. https://lurk-lab.github.io/ci-lab/
+# - Self-hosted runner attached to the caller repo with `gpu-bench` and `gh-pages` tags
+# - `justfile` with a `gpu-bench-ci` recipe
 name: Deploy GPU benchmark from default branch
 
 on:
   workflow_call:
     inputs:
-      runner:
+      # Leave as default for lurk-rs, input `ARECIBO` for arecibo
+      env-prefix:
         required: false
-        default: 'ubuntu-latest'
+        default: 'LURK'
         type: string
 
 jobs:
@@ -29,46 +35,95 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
-          tool: just@1.15.0
-      # Set up GPU
-      # Check we have access to the machine's Nvidia drivers
-      - run: nvidia-smi
-      # Check that CUDA is installed with a driver-compatible version
-      # This must also be compatible with the GPU architecture, see above link
-      - run: nvcc --version
+          tool: just@1.22.0
       # Run benchmarks and deploy
       - name: Get old benchmarks
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           path: gh-pages
-      - run: mkdir -p target; cp -r gh-pages/benchmarks/criterion target;
       - name: Install criterion
         run: cargo install cargo-criterion
+      - name: Copy old benchmarks locally for comparison
+        run: |
+          mkdir -p target gh-pages/benchmarks/criterion
+          cp -r gh-pages/benchmarks/criterion target
+      # Make sure to set repo-specific env vars in the `justfile`/`bench.env`, e.g. `LURK_RC`
+      - name: Set env vars
+        run: |
+          echo "SHORT_SHA=$(git rev-parse --short HEAD)" | tee -a $GITHUB_ENV
+          echo "${{ inputs.env-prefix }}_BENCH_OUTPUT=gh-pages" | tee -a $GITHUB_ENV
       - name: Run benchmarks
         run: |
-          just --dotenv-filename bench.env gpu-bench fibonacci
-          cp ${{ github.sha }}.json ..
+          just gpu-bench-ci fibonacci
+          mv fibonacci-${{ env.SHORT_SHA }}.json ..
         working-directory: ${{ github.workspace }}/benches
+      # If no plot data found, unzip all historical bench results and re-create the plots
+      # TODO: Fix the error when no tarballs are found rather than `continue-on-error`
+      - name: Check for existing plot data
+        run: |
+          if [ ! -f "plot-data.json" ]; then
+            cat gh-pages/benchmarks/history/*.tar.gz | tar -xvzf - -i
+          fi
+        continue-on-error: true
+      # TODO: This should probably be in a subdirectory or Cargo workspace
+      # Saves the plot data to be deployed
+      - name: Generate historical performance plot
+        run: |
+          cargo run
+          mkdir -p history
+          mv -f plot-data.json history
       # TODO: Prettify labels for easier viewing
       # Compress the benchmark file and metadata for later analysis
       - name: Compress artifacts
         run: |
           echo $LABELS > labels.md
-          tar -cvzf ${{ github.sha }}.tar.gz Cargo.lock ${{ github.sha }}.json labels.md
+          tar -cvzf fibonacci-${{ env.SHORT_SHA }}.tar.gz Cargo.lock fibonacci-${{ env.SHORT_SHA }}.json labels.md
+          mv -f fibonacci-${{ env.SHORT_SHA }}.tar.gz history
         working-directory: ${{ github.workspace }}
+      # TODO: Arguably the HTML template should be a pre-requisite
+      - name: Prepare HTML plots page
+        run: |
+          if [[ ! -f plots.html ]]; then
+            html=$(cat << EOF
+          <!DOCTYPE html>
+          <html>
+          <head>
+          <style>
+          img {
+            width: 100%;
+          }
+          </style>
+          </head>
+          <body>
+          </body>
+          </html>
+          EOF
+          )
+            echo "$html" > plots.html
+          fi
+
+          shopt -s nullglob  # Prevent errors if no matching files are found
+
+          for FILE in `ls *.png | sort -g`; do
+             if [[ -f $FILE ]]; then # Check if it's a regular file
+                 IMAGE="<img src=\"$FILE\" alt=\"Benchmark history plot for $FILE\" style=\"width:1000px;height:1000px;\"/>"
+                 echo $IMAGE
+                 sed -i "/<\/body>/i\\$IMAGE" plots.html
+             fi
+          done
+
+          mv -f *.png plots.html history
       - name: Deploy latest benchmark report
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./target/criterion
           destination_dir: benchmarks/criterion
-      - name: Copy benchmark json to history
-        run: mkdir history; cp ${{ github.sha }}.tar.gz history/
       - name: Deploy benchmark history
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: history/
+          publish_dir: ./history
           destination_dir: benchmarks/history
           keep_files: true
