@@ -1,71 +1,118 @@
-# Creates a PR benchmark comment with a comparison to main
+# Creates a PR benchmark comment with a comparison to the base branch
+#
+# Usage: 
+# ```
+# !benchmark --bench <bench> --features <a,b,c>
+# ENV_A=a
+# ENV_B=b
+# ```
+#
+# Notes
+# - There can be multiple instances of `--bench <bench>`, each will spawn a new matrix job and associated PR comment
+# - If only `!benchmark` is passed as input, then the workflow will run with the caller's `default-benches` and `default-env` inputs
+#
 # Restrictions
-# - Only use with `issue_comment` trigger on a PR
-# - Only runs with single benchmark due to `criterion` limitations (can be worked around, see criterion-compare-action below)
+# - Only for use with `issue_comment` trigger on a PR
+# - If the `cuda` feature is specified, there must be a self-hosted runner attached to the repo with the `gpu-bench` label
 name: Benchmark pull requests
 
 on:
   workflow_call:
     inputs:
-      runner:
+      # Runner used for benchmarks when `cuda` feature is not activated
+      default-runner:
+        type: string
         required: false
         default: 'ubuntu-latest'
+      # Comma-separated list of default benchmarks when they are unspecified in the comment body
+      default-benches:
         type: string
-      bench:
         required: true
+      # Whitespace-separated list of default env vars, set regardless of comment body
+      default-env:
         type: string
+        required: false
 
-# TODO: Configure env vars via the `!benchmark` comment body instead of `bench.env`
 jobs:
-  cpu-benchmark:
-    name: Run CPU benchmark
-    runs-on: ${{ inputs.runner }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: lurk-lab/ci-workflows
-      - uses: ./.github/actions/gpu-setup
-        with:
-          gpu-framework: 'cuda'
-      - uses: ./.github/actions/ci-env
-      - uses: actions/checkout@v4
-      - name: Checkout PR branch
-        run: gh pr checkout $PR_NUMBER
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.issue.number }}
-      # Install dependencies
-      - name: Install dependencies
-        run: sudo apt-get install -y pkg-config libssl-dev
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Set output type
-        run: |
-          echo "LURK_BENCH_OUTPUT=pr-comment" >> $GITHUB_ENV
-      - uses: cardinalby/export-env-action@v2
-        with:
-          envFile:
-            'benches/bench.env'
-      # Run the comparative benchmark and comment output on the PR
-      - uses: boa-dev/criterion-compare-action@v3
-        with:
-          # Note: Removing `benchName` causes `criterion` errors: https://github.com/boa-dev/criterion-compare-action#troubleshooting
-          # Optional. Compare only this benchmark target
-          benchName: "${{ inputs.bench }}"
-          # Needed. The name of the branch to compare with
-          branchName: ${{ github.ref_name }}
+  setup:
+    name: Set up benchmark parameters
+    runs-on: ubuntu-latest
+    if:
+      github.event.issue.pull_request
+      && github.event.issue.state == 'open'
+      && contains(github.event.comment.body, '!benchmark')
+      && (github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'OWNER')
+    outputs:
+      # Benches specified by `--bench <BENCH>` repeated for each bench
+      benches: ${{ steps.bench-params.outputs.benches }}
+      # Features specified by `--features <FEATURES>`
+      features: ${{ steps.bench-params.outputs.features }}
+      # Env vars specified by `ENV_VAR=<VAR>`, starting on the second line of the `issue_comment` input
+      # Separated by whitespace but ideally newlines for readability
+      env-vars: ${{ steps.bench-params.outputs.env-vars }}
+      # Flag to denote the `cuda` feature is active, which means we need a self-hosted GPU runner
+      cuda: ${{ steps.bench-params.outputs.cuda }}
 
-  gpu-benchmark:
-    name: Run GPU benchmark
-    runs-on: [self-hosted, "${{ inputs.runner }}"]
     steps:
+      - name: Parse PR comment body
+        id: bench-params
+        run: |
+          printf '${{ github.event.comment.body }}' > comment.txt
+          BENCH_COMMAND=$(head -n 1 comment.txt)
+          echo $BENCH_COMMAND
+          
+          # Get each input bench name and format as quoted list
+          BENCHES=$(echo $BENCH_COMMAND | awk -v q=\" '{for (i=1; i<=NF; i++) {if ($i ~ /^--bench/) {print q$(i+1)q","}}}')
+          if [[ -z $BENCHES ]]; then
+            # Add quotes to each default bench name in comma-separated list for `fromJSON` parsing
+            BENCHES=$(echo ${{ inputs.default-benches }} | awk -F"," -v q=\" '{for (i=0; i<NF; i++) {print q$(i+1)q","}}')
+          fi
+          # Format for `fromJSON` parsing
+          BENCHES="[${BENCHES%,}]"
+          echo $BENCHES
+          # For some reason the input string is parsed as multiline, so this hack allows `$GITHUB_OUTPUT` to ingest it
+          echo "benches<<EOF" >> $GITHUB_OUTPUT
+          echo "$BENCHES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          # Get the list of features to run on each benchmark
+          FEATURES=$(echo $BENCH_COMMAND | awk -F"--features " '{print $2}')
+          echo "cuda=$(echo $FEATURES | grep -s cuda)" | tee -a $GITHUB_OUTPUT
+          echo "features=$FEATURES" | tee -a $GITHUB_OUTPUT
+          # Can't persist env vars between jobs, so we pass them as an output and set them in the next job
+          echo "env-vars=$(tail -n +2 comment.txt)" | tee -a $GITHUB_OUTPUT
+
+  benchmark:
+    needs: [ setup ]
+    # Uses a self-hosted GPU runner if the `cuda` feature is specified, otherwise uses the default runner
+    runs-on: ${{ (needs.setup.outputs.cuda) && fromJSON('[ "self-hosted", "gpu-bench" ]') || inputs.default-runner }}
+    strategy:
+      matrix:
+        # Runs a job for each benchmark specified in the `issue_comment` input
+        bench: ${{ fromJSON(needs.setup.outputs.benches) }}
+    steps:
+      - name: Set env vars
+        run: |
+          echo "${{ matrix.value }}"
+          for var in ${{ inputs.default-env }}
+          do
+            echo $var | tee -a $GITHUB_ENV
+          done
+          # Overrides default env vars with those specified in the `issue_comment` input if identically named
+          for var in ${{ needs.setup.outputs.env-vars }}
+          do
+            echo $var | tee -a $GITHUB_ENV
+          done
       - uses: actions/checkout@v4
         with:
           repository: lurk-lab/ci-workflows
       - uses: ./.github/actions/gpu-setup
+        if: ${{ needs.setup.outputs.cuda }}
         with:
           gpu-framework: 'cuda'
       - uses: ./.github/actions/ci-env
+        # Get base branch of the PR
+      - uses: xt0rted/pull-request-comment-branch@v2
+        id: comment-branch
       - uses: actions/checkout@v4
       - name: Checkout PR branch
         run: gh pr checkout $PR_NUMBER
@@ -75,18 +122,14 @@ jobs:
       # Install dependencies
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Set output type
-        run: echo "LURK_BENCH_OUTPUT=pr-comment" >> $GITHUB_ENV
-      - uses: cardinalby/export-env-action@v2
-        with:
-          envFile: 'benches/bench.env'
       # Run the comparative benchmark and comment output on the PR
       - uses: boa-dev/criterion-compare-action@v3
         with:
-          # Note: Removing `benchName` causes `criterion` errors: https://github.com/boa-dev/criterion-compare-action#troubleshooting
+          # Note: Removing `benchName` causes `criterion` `save-baseline` errors:
+          # https://github.com/boa-dev/criterion-compare-action#troubleshooting
           # Optional. Compare only this benchmark target
-          benchName: "${{ inputs.bench }}"
+          benchName: ${{ matrix.bench }}
           # Optional. Features activated in the benchmark
-          features: "cuda"
+          features: "${{ needs.setup.outputs.features }}"
           # Needed. The name of the branch to compare with
-          branchName: ${{ github.ref_name }}
+          branchName: ${{ steps.comment-branch.outputs.base_ref }}
