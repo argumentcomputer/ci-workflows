@@ -47,7 +47,7 @@ jobs:
           echo "paths=$FILE_PATHS" | tee -a $GITHUB_OUTPUT
       # Note: Doesn't work for `push` or `pull_request` triggers
       - name: Create pull request
-        uses: peter-evans/create-pull-request@v5
+        uses: peter-evans/create-pull-request@v6
         if: steps.typo-check.outputs.typos == 'true'
         with:
           commit-message: '[automated] Fix typos'
