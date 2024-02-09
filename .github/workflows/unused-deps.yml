@@ -33,7 +33,7 @@ jobs:
       # opt to use the stable toolchain specified via the 'rust-toolchain' file
       # and instead enable nightly features via 'RUSTC_BOOTSTRAP'
       - name: run cargo-udeps
-        run: RUSTC_BOOTSTRAP=1 cargo udeps --lib --features "${{ inputs.features }}"
+        run: RUSTC_BOOTSTRAP=1 cargo udeps --workspace --all-targets --features "${{ inputs.features }}"
       - uses: JasonEtco/create-an-issue@v2
         if: ${{ failure() }}
         env:
