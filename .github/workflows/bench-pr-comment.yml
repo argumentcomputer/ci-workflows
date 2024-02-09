@@ -1,5 +1,7 @@
 # Creates a PR benchmark comment with a comparison to the base branch
 #
+# USER NOTE: If you want to use a GPU runner with CUDA acceleration, you must specify `--features cuda` (see below syntax)
+#
 # Usage: 
 # ```
 # !benchmark --bench <bench> --features <a,b,c>
@@ -19,7 +21,9 @@ name: Benchmark pull requests
 on:
   workflow_call:
     inputs:
-      # Runner used for benchmarks when `cuda` feature is not activated
+      # Comma-separated list of runner labels used for benchmarks when `cuda` feature is not activated
+      # E.g. "ubuntu-latest", "self-hosted,gpu-bench" The latter will run on a GPU machine but not actually use the GPU
+      # To use the GPU you must set `--features cuda`, which will always run on a `["self-hosted", "gpu-bench"]` runner
       default-runner:
         type: string
         required: false
@@ -43,6 +47,8 @@ jobs:
       && contains(github.event.comment.body, '!benchmark')
       && (github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'OWNER')
     outputs:
+      # Default runner formatted for JSON parsing
+      runner: ${{ steps.format-runner.outputs.runner }}
       # Benches specified by `--bench <BENCH>` repeated for each bench
       benches: ${{ steps.bench-params.outputs.benches }}
       # Features specified by `--features <FEATURES>`
@@ -54,12 +60,24 @@ jobs:
       cuda: ${{ steps.bench-params.outputs.cuda }}
 
     steps:
+      - name: Format default runner string
+        id: format-runner
+        run: |
+          # Parse `default-runner` if it's a list of strings (e.g. `"self-hosted,gpu-bench")
+          RUNNER=$(echo ${{ inputs.default-runner }} | awk -F"," -v q=\" '{for (i=0; i<NF; i++) {print q$(i+1)q","}}')
+          RUNNER="[${RUNNER%,}]"
+          echo "$RUNNER"
+          # For some reason the input string is parsed as multiline, so this hack allows `$GITHUB_OUTPUT` to ingest it
+          echo "runner<<EOF" >> $GITHUB_OUTPUT
+          echo "$RUNNER" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
       - name: Parse PR comment body
         id: bench-params
         run: |
+          # Parse `issue_comment` body
           printf '${{ github.event.comment.body }}' > comment.txt
           BENCH_COMMAND=$(head -n 1 comment.txt)
-          echo $BENCH_COMMAND
+          echo "$BENCH_COMMAND"
           
           # Get each input bench name and format as quoted list
           BENCHES=$(echo $BENCH_COMMAND | awk -v q=\" '{for (i=1; i<=NF; i++) {if ($i ~ /^--bench/) {print q$(i+1)q","}}}')
@@ -69,7 +87,7 @@ jobs:
           fi
           # Format for `fromJSON` parsing
           BENCHES="[${BENCHES%,}]"
-          echo $BENCHES
+          echo "$BENCHES"
           # For some reason the input string is parsed as multiline, so this hack allows `$GITHUB_OUTPUT` to ingest it
           echo "benches<<EOF" >> $GITHUB_OUTPUT
           echo "$BENCHES" >> $GITHUB_OUTPUT
@@ -84,12 +102,14 @@ jobs:
   benchmark:
     needs: [ setup ]
     # Uses a self-hosted GPU runner if the `cuda` feature is specified, otherwise uses the default runner
-    runs-on: ${{ (needs.setup.outputs.cuda) && fromJSON('[ "self-hosted", "gpu-bench" ]') || inputs.default-runner }}
+    runs-on: ${{ (needs.setup.outputs.cuda) && fromJSON('[ "self-hosted", "gpu-bench" ]') || fromJSON(needs.setup.outputs.runner) }}
     strategy:
       matrix:
         # Runs a job for each benchmark specified in the `issue_comment` input
         bench: ${{ fromJSON(needs.setup.outputs.benches) }}
     steps:
+      # When using the `cuda` feature, several GPU-related env vars are set by the `gpu-setup` action below.
+      # Thus there is no need to set them here. These inputs are mainly for benchmark parameters such as `LURK_RC`
       - name: Set env vars
         run: |
           echo "${{ matrix.value }}"
