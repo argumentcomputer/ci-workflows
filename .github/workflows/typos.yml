@@ -32,11 +32,14 @@ jobs:
           Commit: ${{ github.sha }}
           Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" > _body.md
           if [[ -s _typos.txt ]]; then
-            printf "The following typos could not be fixed:\n\`\`\`\n" >> _body.md
+            printf "## Unfixed typos:\n" >> _body.md
+            printf "Reviewers: Please manually fix & commit the following typos:\n\`\`\`\n" >> _body.md
             cat _typos.txt >> _body.md
             printf "\`\`\`" >> _body.md
+            rm _typos.txt
           fi
-          rm _typos.txt
+          printf '%s\n' "> [!NOTE]
+          > If a false positive is found, please add it to \`_typos.toml\` as per the [documentation](https://github.com/crate-ci/typos/tree/master?tab=readme-ov-file#false-positives)" >> _body.md
       # Checks which file types should be committed with typo corrections
       # Git pathspecs cause errors if the given pattern doesn't exist, e.g. `git add -- **/*.txt` without any `.txt` files
       - name: Check for common file types
