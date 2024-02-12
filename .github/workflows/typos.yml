@@ -32,10 +32,10 @@ jobs:
           Commit: ${{ github.sha }}
           Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" > _body.md
           if [[ -s _typos.txt ]]; then
-            printf "## Unfixed typos:\n" >> _body.md
+            printf "## Unfixed typos\n" >> _body.md
             printf "Reviewers: Please manually fix & commit the following typos:\n\`\`\`\n" >> _body.md
             cat _typos.txt >> _body.md
-            printf "\`\`\`" >> _body.md
+            printf "\`\`\`\n" >> _body.md
             rm _typos.txt
           fi
           printf '%s\n' "> [!NOTE]
