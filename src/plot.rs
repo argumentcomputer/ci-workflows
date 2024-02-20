@@ -1,3 +1,4 @@
+use anyhow::bail;
 use plotters::prelude::*;
 
 use chrono::{serde::ts_seconds, DateTime, Duration, Utc};
@@ -7,7 +8,6 @@ use std::{collections::HashMap, error::Error};
 
 use crate::json::BenchData;
 
-// TODO: Figure out how to include the commit hash as a label on the point or X-axis
 pub fn generate_plots(data: &Plots) -> Result<(), Box<dyn Error>> {
     for plot in data.0.iter() {
         let out_file_name = format!("./{}.png", plot.0);
@@ -40,6 +40,7 @@ pub fn generate_plots(data: &Plots) -> Result<(), Box<dyn Error>> {
             .configure_mesh()
             .disable_x_mesh()
             .disable_y_mesh()
+            .x_label_formatter(&|x| format!("{}", x.format("%m/%d/%y")))
             .x_labels(10)
             .max_light_lines(4)
             .x_desc("Commit Date")
@@ -50,25 +51,25 @@ pub fn generate_plots(data: &Plots) -> Result<(), Box<dyn Error>> {
         for (i, line) in plot.1.lines.iter().enumerate() {
             // Draw lines between each point
             chart
-                .draw_series(LineSeries::new(
-                    line.1.iter().map(|p| (p.x, p.y)),
-                    Palette99::pick(i),
-                ))?
+                .draw_series(LineSeries::new(line.1.iter().map(|p| (p.x, p.y)), style(i)))?
                 .label(line.0)
                 // TODO: Move the legend out of the plot area
                 .legend(move |(x, y)| {
-                    Rectangle::new(
-                        [(x - 5, y - 5), (x + 5, y + 5)],
-                        Palette99::pick(i).filled(),
-                    )
+                    Rectangle::new([(x - 5, y - 5), (x + 5, y + 5)], style(i).filled())
                 });
 
-            // Draw dots on each point
-            chart.draw_series(
-                line.1
-                    .iter()
-                    .map(|p| Circle::new((p.x, p.y), 3, Palette99::pick(i).filled())),
-            )?;
+            // Draw points and text labels (Git commit) on each point
+            chart.draw_series(PointSeries::of_element(
+                line.1.iter(),
+                5,
+                style(i).filled(),
+                &|coord, size, style| {
+                    EmptyElement::at((coord.x, coord.y))
+                        + Circle::new((0, 0), size, style)
+                        + Text::new(format!("{:?}", coord.label), (0, 0), ("sans-serif", 15))
+                },
+            ))?;
+
             chart
                 .configure_series_labels()
                 .background_style(WHITE)
@@ -84,15 +85,22 @@ pub fn generate_plots(data: &Plots) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-// Convert <short-sha>-<commit-date> to a `DateTime` object, discarding `short-sha`
-fn str_to_datetime(input: &str) -> Result<DateTime<Utc>, Box<dyn Error>> {
-    // Removes the first 8 chars (assuming UTF8) for the `short-sha` and trailing '-'
-    let datetime: &str = input.split_at(8).1;
+fn style(idx: usize) -> PaletteColor<Palette99> {
+    Palette99::pick(idx)
+}
 
-    DateTime::parse_from_rfc3339(datetime).map_or_else(
-        |e| Err(format!("Failed to parse string into `DateTime`: {}", e).into()),
+// Splits a <commit-hash>-<commit-date> input into a (String, `DateTime`) object
+fn parse_commit_str(input: &str) -> anyhow::Result<(String, DateTime<Utc>)> {
+    // Splits at the first `-` as the size is known (assumes UTF-8)
+    let (commit, date) = input.split_at(8);
+    let mut commit = commit.to_owned();
+    commit.pop();
+
+    let date = DateTime::parse_from_rfc3339(date).map_or_else(
+        |e| bail!("Failed to parse string into `DateTime`: {}", e),
         |dt| Ok(dt.with_timezone(&Utc)),
-    )
+    )?;
+    Ok((commit, date))
 }
 
 // Plots of benchmark results over time/Git history. This data structure is persistent between runs,
@@ -115,10 +123,12 @@ impl Plots {
     // and adds the data to the `Plots` struct.
     pub fn add_data(&mut self, bench_data: &Vec<BenchData>) {
         for bench in bench_data {
-            let commit_date = str_to_datetime(&bench.id.bench_name).expect("Timestamp parse error");
+            let (commit_hash, commit_date) =
+                parse_commit_str(&bench.id.bench_name).expect("Timestamp parse error");
             let point = Point {
                 x: commit_date,
                 y: bench.result.time,
+                label: commit_hash,
             };
 
             if self.0.get(&bench.id.group_name).is_none() {
@@ -168,6 +178,8 @@ pub struct Point {
     x: DateTime<Utc>,
     // Benchmark time (avg.)
     y: f64,
+    // Commit hash (short)
+    label: String,
 }
 
 // Min. and max. X axis values for a given plot

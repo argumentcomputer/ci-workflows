@@ -34,6 +34,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: just@1.22.0
+      - run: sudo apt-get update && sudo apt-get install pkg-config libfontconfig1-dev
       # Run benchmarks and deploy
       - name: Get old benchmarks
         uses: actions/checkout@v4
@@ -56,26 +57,34 @@ jobs:
           just gpu-bench-ci fibonacci
           mv fibonacci-${{ env.COMMIT }}.json ..
         working-directory: ${{ github.workspace }}/benches
+      - uses: actions/checkout@v4
+        with:
+          repository: lurk-lab/ci-workflows
+          path: ci-workflows
       # If no plot data found, unzip all historical bench results to re-create the plots
       - name: Check for existing plot data
         run: |
-          if [ ! -f "plot-data.json" ]; then
-            shopt -s nullglob # Make glob patterns that match no files expand to a null string
-            tarballs=(./*.tar.gz)
+          shopt -s nullglob # Make glob patterns that match no files expand to a null string
+          if [ ! -f "../gh-pages/benchmarks/history/plot-data.json" ]; then
+            echo "No plot data found"
+            tarballs=(../gh-pages/benchmarks/history/*.tar.gz)
             if (( ${#tarballs[@]} )); then
               cat "${tarballs[@]}" | tar -xvzf - -i
             else
               echo "No tarballs found for extraction."
             fi
-            shopt -u nullglob # Disable nullglob option
           fi
-      # TODO: This should probably be in a subdirectory or Cargo workspace
+          shopt -u nullglob # Disable nullglob option
+        working-directory: ${{ github.workspace }}/ci-workflows
       # Saves the plot data to be deployed
       - name: Generate historical performance plot
         run: |
+          cp ../fibonacci-${{ env.COMMIT }}.json .
           cargo run
-          mkdir -p history
-          mv -f plot-data.json history
+          mv *.png ..
+          mkdir -p ../history
+          mv -f plot-data.json ../history
+        working-directory: ${{ github.workspace }}/ci-workflows
       # TODO: Prettify labels for easier viewing
       # Compress the benchmark file and metadata for later analysis
       - name: Compress artifacts
