@@ -1,17 +1,17 @@
 # Creates a PR benchmark comment with a comparison to the base branch
 #
-# USER NOTE: If you want to use a GPU runner with CUDA acceleration, you must specify `--features cuda` (see below syntax)
+# USER NOTE: If you want to use a GPU runner with CUDA acceleration, you must specify `!gpu-benchmark` or `--features cuda` (see below syntax)
 #
 # Usage: 
 # ```
-# !benchmark --bench <bench> --features <a,b,c>
+# <!benchmark|!gpu-benchmark> --bench <bench> --features <a,b,c>
 # ENV_A=a
 # ENV_B=b
 # ```
 #
 # Notes
 # - There can be multiple instances of `--bench <bench>`, each will spawn a new matrix job and associated PR comment
-# - If only `!benchmark` is passed as input, then the workflow will run with the caller's `default-benches` and `default-env` inputs
+# - If only `<!benchmark|!gpu-benchmark>` is passed as input, then the workflow will run with the caller's `default-benches` and `default-env` inputs
 #
 # Restrictions
 # - Only for use with `issue_comment` trigger on a PR
@@ -44,8 +44,10 @@ jobs:
     if:
       github.event.issue.pull_request
       && github.event.issue.state == 'open'
-      && contains(github.event.comment.body, '!benchmark')
+      && (contains(github.event.comment.body, '!benchmark') || contains(github.event.comment.body, '!gpu-benchmark'))
       && (github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'OWNER')
+    env:
+      GPU_BENCHMARK: ${{ contains(github.event.comment.body, '!gpu-benchmark') }}
     outputs:
       # Default runner formatted for JSON parsing
       runner: ${{ steps.format-runner.outputs.runner }}
@@ -58,6 +60,8 @@ jobs:
       env-vars: ${{ steps.bench-params.outputs.env-vars }}
       # Flag to denote the `cuda` feature is active, which means we need a self-hosted GPU runner
       cuda: ${{ steps.bench-params.outputs.cuda }}
+      # `benchmark` or `gpu-benchmark`, used for debugging and comment output
+      command: ${{ steps.bench-params.outputs.command }}
 
     steps:
       - name: Format default runner string
@@ -93,8 +97,14 @@ jobs:
           echo "$BENCHES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           # Get the list of features to run on each benchmark
-          FEATURES=$(echo $BENCH_COMMAND | awk -F"--features " '{print $2}')
-          echo "cuda=$(echo $FEATURES | grep -s cuda)" | tee -a $GITHUB_OUTPUT
+          FEATURES=$(echo $BENCH_COMMAND | awk '{for (i=1; i<=NF; i++) {if ($i ~ /^--features/) {print $(i+1) }}}')
+          if [[ ${{ env.GPU_BENCHMARK }} = 'true' || $(echo $FEATURES | grep -s cuda) ]]; then
+            echo "cuda=true" | tee -a $GITHUB_OUTPUT
+            COMMAND="gpu-benchmark"
+          else
+            COMMAND="benchmark"
+          fi
+          echo "command=$COMMAND" | tee -a $GITHUB_OUTPUT
           echo "features=$FEATURES" | tee -a $GITHUB_OUTPUT
           # Can't persist env vars between jobs, so we pass them as an output and set them in the next job
           echo "env-vars=$(tail -n +2 comment.txt)" | tee -a $GITHUB_OUTPUT
@@ -112,15 +122,15 @@ jobs:
       # Thus there is no need to set them here. These inputs are mainly for benchmark parameters such as `LURK_RC`
       - name: Set env vars
         run: |
-          echo "${{ matrix.value }}"
+          # Trims newlines that may arise from `$GITHUB_OUTPUT`
           for var in ${{ inputs.default-env }}
           do
-            echo $var | tee -a $GITHUB_ENV
+            echo "$(echo $var | tr -d '\n')" | tee -a $GITHUB_ENV
           done
           # Overrides default env vars with those specified in the `issue_comment` input if identically named
           for var in ${{ needs.setup.outputs.env-vars }}
           do
-            echo $var | tee -a $GITHUB_ENV
+            echo "$(echo $var | tr -d '\n')" | tee -a $GITHUB_ENV
           done
       - uses: actions/checkout@v4
         with:
@@ -153,3 +163,22 @@ jobs:
           features: "${{ needs.setup.outputs.features }}"
           # Needed. The name of the branch to compare with
           branchName: ${{ steps.comment-branch.outputs.base_ref }}
+      - name: Comment on successful run
+        if: success()
+        uses: peter-evans/create-or-update-comment@v3
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          body: |
+            `!${{ needs.setup.outputs.command }}` action succeeded! :rocket:
+
+            https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Comment on failing run
+        if: failure()
+        uses: peter-evans/create-or-update-comment@v3
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          body: |
+            `!${{ needs.setup.outputs.command }}` action failed :x:
+
+            https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
