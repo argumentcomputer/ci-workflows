@@ -11,25 +11,6 @@ use json::read_json_from_file;
 
 use crate::plot::{generate_plots, Plots};
 
-// TODO: Switch to camino
-// Gets all JSON paths in the current directory, optionally ending in a given suffix
-// E.g. if `suffix` is `abc1234.json` it will return "*abc1234.json"
-fn get_json_paths(suffix: Option<&str>) -> std::io::Result<Vec<std::path::PathBuf>> {
-    let suffix = suffix.unwrap_or(".json");
-    let entries = std::fs::read_dir(".")?
-        .flatten()
-        .filter_map(|e| {
-            let ext = e.path();
-            if ext.to_str()?.ends_with(suffix) {
-                Some(ext)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    Ok(entries)
-}
-
 // Benchmark files to plot, e.g. `LURK_BENCH_FILES=fibonacci-abc1234,fibonacci-def5678`
 fn bench_files_env() -> anyhow::Result<Vec<String>> {
     std::env::var("LURK_BENCH_FILES")
@@ -69,6 +50,25 @@ fn write_plots_to_file(plot_data: &Plots) -> Result<(), io::Error> {
     let json_data = serde_json::to_string(&plot_data)?;
 
     file.write_all(json_data.as_bytes())
+}
+
+// TODO: Switch to camino
+// Gets all JSON paths in the current directory, optionally ending in a given suffix
+// E.g. if `suffix` is `abc1234.json` it will return "*abc1234.json"
+fn get_json_paths(suffix: Option<&str>) -> std::io::Result<Vec<std::path::PathBuf>> {
+    let suffix = suffix.unwrap_or(".json");
+    let entries = std::fs::read_dir(".")?
+        .flatten()
+        .filter_map(|e| {
+            let ext = e.path();
+            if ext.to_str()?.ends_with(suffix) {
+                Some(ext)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    Ok(entries)
 }
 
 fn main() {

@@ -1,4 +1,3 @@
-use anyhow::bail;
 use plotters::prelude::*;
 
 use chrono::{serde::ts_seconds, DateTime, Duration, Utc};
@@ -89,20 +88,6 @@ fn style(idx: usize) -> PaletteColor<Palette99> {
     Palette99::pick(idx)
 }
 
-// Splits a <commit-hash>-<commit-date> input into a (String, `DateTime`) object
-fn parse_commit_str(input: &str) -> anyhow::Result<(String, DateTime<Utc>)> {
-    // Splits at the first `-` as the size is known (assumes UTF-8)
-    let (commit, date) = input.split_at(8);
-    let mut commit = commit.to_owned();
-    commit.pop();
-
-    let date = DateTime::parse_from_rfc3339(date).map_or_else(
-        |e| bail!("Failed to parse string into `DateTime`: {}", e),
-        |dt| Ok(dt.with_timezone(&Utc)),
-    )?;
-    Ok((commit, date))
-}
-
 // Plots of benchmark results over time/Git history. This data structure is persistent between runs,
 // saved to disk in `plot-data.json`, and is meant to be append-only to preserve historical results.
 //
@@ -123,26 +108,25 @@ impl Plots {
     // and adds the data to the `Plots` struct.
     pub fn add_data(&mut self, bench_data: &Vec<BenchData>) {
         for bench in bench_data {
-            let (commit_hash, commit_date) =
-                parse_commit_str(&bench.id.bench_name).expect("Timestamp parse error");
+            let id = &bench.id;
             let point = Point {
-                x: commit_date,
+                x: id.params.commit_timestamp,
                 y: bench.result.time,
-                label: commit_hash,
+                label: id.params.commit_hash.clone(),
             };
 
-            if self.0.get(&bench.id.group_name).is_none() {
-                self.0.insert(bench.id.group_name.to_owned(), Plot::new());
+            if self.0.get(&id.group_name).is_none() {
+                self.0.insert(id.group_name.to_owned(), Plot::new());
             }
-            let plot = self.0.get_mut(&bench.id.group_name).unwrap();
+            let plot = self.0.get_mut(&id.group_name).unwrap();
 
-            plot.x_axis.set_min_max(commit_date);
+            plot.x_axis.set_min_max(id.params.commit_timestamp);
             plot.y_axis.set_min_max(point.y);
 
-            if plot.lines.get(&bench.id.params).is_none() {
-                plot.lines.insert(bench.id.params.to_owned(), vec![]);
+            if plot.lines.get(&id.params.params).is_none() {
+                plot.lines.insert(id.params.params.to_owned(), vec![]);
             }
-            plot.lines.get_mut(&bench.id.params).unwrap().push(point);
+            plot.lines.get_mut(&id.params.params).unwrap().push(point);
         }
         // Sort each data point in each line for each plot
         for plot in self.0.iter_mut() {
