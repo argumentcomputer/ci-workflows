@@ -1,0 +1,14 @@
+name: Install dependencies
+
+description: Install Ubuntu prerequsite packages via `apt`
+
+inputs:
+  packages:
+    description: 'apt packages'
+    required: true
+
+runs:
+  using: "composite"
+  steps: 
+  - run: sudo apt-get update && sudo apt-get install -y ${{ inputs.packages }}
+    shell: bash
