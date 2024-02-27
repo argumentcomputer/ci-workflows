@@ -1,4 +1,6 @@
-name: Check lints and code quality
+# NOTE: Does not currently work with Cargo workspaces
+# See https://github.com/lurk-lab/ci-workflows/issues/8
+name: Check MSRV
 
 on:
   workflow_call:
@@ -9,11 +11,9 @@ on:
         type: string
 
 jobs:
-  # Rustfmt, clippy, and doctests
-  lints:
+  # Check MSRV (aka `rust-version`) in `Cargo.toml` is valid
+  msrv:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,18 +25,8 @@ jobs:
           packages: "${{ inputs.packages }}"
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Check Rustfmt Code Style
-        run: |
-          cargo fmt --all -- --check
-      - name: Check clippy warnings
-        run: |
-          if $(cargo --list|grep -q xclippy); then 
-            cargo xclippy -Dwarnings
-          else 
-            cargo clippy -Dwarnings
-          fi
-      - name: Doctests
-        run: cargo test --doc --workspace
+      - name: Install cargo-msrv
+        run: cargo install cargo-msrv
+      - name: Check Rust MSRV
+        run: cargo msrv verify 

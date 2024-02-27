@@ -1,4 +1,4 @@
-name: Check lints and code quality
+name: Wasm build
 
 on:
   workflow_call:
@@ -7,13 +7,9 @@ on:
       packages:
         required: false
         type: string
-
 jobs:
-  # Rustfmt, clippy, and doctests
-  lints:
+  wasm-build:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,18 +21,7 @@ jobs:
           packages: "${{ inputs.packages }}"
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Check Rustfmt Code Style
-        run: |
-          cargo fmt --all -- --check
-      - name: Check clippy warnings
-        run: |
-          if $(cargo --list|grep -q xclippy); then 
-            cargo xclippy -Dwarnings
-          else 
-            cargo clippy -Dwarnings
-          fi
-      - name: Doctests
-        run: cargo test --doc --workspace
+      - run: rustup target add wasm32-unknown-unknown
+      - name: Wasm build 
+        run: cargo build --target wasm32-unknown-unknown
