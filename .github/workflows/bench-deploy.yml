@@ -14,6 +14,10 @@ on:
         required: false
         default: 'LURK'
         type: string
+      # List of prerequisite Ubuntu packages, separated by whitespace
+      packages:
+        required: false
+        type: string
 
 jobs:
   benchmark:
@@ -27,6 +31,9 @@ jobs:
         with:
           gpu-framework: 'cuda'
       - uses: ./.github/actions/ci-env
+      - uses: ./.github/actions/install-deps
+        with:
+          packages: "${{ inputs.packages }} pkg-config libfontconfig1-dev"
       # Install deps
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -34,7 +41,6 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: just@1.22.0
-      - run: sudo apt-get update && sudo apt-get install pkg-config libfontconfig1-dev
       # Run benchmarks and deploy
       - name: Get old benchmarks
         uses: actions/checkout@v4
@@ -55,7 +61,7 @@ jobs:
       - name: Run benchmarks
         run: |
           just gpu-bench-ci fibonacci
-          mv fibonacci-${{ env.COMMIT }}.json ..
+          mv fibonacci-${{ env.COMMIT }}.json ${{ github.workspace }}
         working-directory: ${{ github.workspace }}/benches
       - uses: actions/checkout@v4
         with:
@@ -65,9 +71,9 @@ jobs:
       - name: Check for existing plot data
         run: |
           shopt -s nullglob # Make glob patterns that match no files expand to a null string
-          if [ ! -f "../gh-pages/benchmarks/history/plot-data.json" ]; then
+          if [ ! -f "${{ github.workspace }}/gh-pages/benchmarks/history/plot-data.json" ]; then
             echo "No plot data found"
-            tarballs=(../gh-pages/benchmarks/history/*.tar.gz)
+            tarballs=(${{ github.workspace }}/gh-pages/benchmarks/history/*.tar.gz)
             if (( ${#tarballs[@]} )); then
               cat "${tarballs[@]}" | tar -xvzf - -i
             else
@@ -79,11 +85,11 @@ jobs:
       # Saves the plot data to be deployed
       - name: Generate historical performance plot
         run: |
-          cp ../fibonacci-${{ env.COMMIT }}.json .
+          cp ${{ github.workspace }}/fibonacci-${{ env.COMMIT }}.json .
           cargo run
-          mv *.png ..
-          mkdir -p ../history
-          mv -f plot-data.json ../history
+          mv *.png ${{ github.workspace }}
+          mkdir -p ${{ github.workspace }}/history
+          mv -f plot-data.json ${{ github.workspace }}/history
         working-directory: ${{ github.workspace }}/ci-workflows
       # TODO: Prettify labels for easier viewing
       # Compress the benchmark file and metadata for later analysis
