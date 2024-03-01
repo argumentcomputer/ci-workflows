@@ -7,8 +7,10 @@ use std::{collections::HashMap, error::Error};
 
 use crate::json::BenchData;
 
+// TODO: Plot throughput as well as timings
 pub fn generate_plots(data: &Plots) -> Result<(), Box<dyn Error>> {
     for plot in data.0.iter() {
+        println!("Plotting: {} {:?}", plot.0, plot.1);
         let out_file_name = format!("./{}.png", plot.0);
         let root = BitMapBackend::new(&out_file_name, (1024, 768)).into_drawing_area();
         root.fill(&WHITE)?;
@@ -92,7 +94,7 @@ fn style(idx: usize) -> PaletteColor<Palette99> {
 // saved to disk in `plot-data.json`, and is meant to be append-only to preserve historical results.
 //
 // Note:
-// Plots are separated by benchmark input e.g. `Fibonacci-num-100`. It doesn't reveal much
+// Plots are separated by benchmark group and function e.g. `Fibonacci-num=100-Prove`. It doesn't reveal much
 // information to view multiple benchmark input results on the same graph (e.g. fib-10 and fib-20),
 // since they are expected to be different. Instead, we group different benchmark parameters
 // (e.g. `rc` value) onto the same graph to compare/contrast their impact on performance.
@@ -114,11 +116,13 @@ impl Plots {
                 y: bench.result.time,
                 label: id.params.commit_hash.clone(),
             };
+            // plotters doesn't like `/` char in plot title so we use `-`
+            let plot_name = format!("{}-{}", id.group_name, id.bench_name);
 
-            if self.0.get(&id.group_name).is_none() {
-                self.0.insert(id.group_name.to_owned(), Plot::new());
+            if self.0.get(&plot_name).is_none() {
+                self.0.insert(plot_name.clone(), Plot::new());
             }
-            let plot = self.0.get_mut(&id.group_name).unwrap();
+            let plot = self.0.get_mut(&plot_name).unwrap();
 
             plot.x_axis.set_min_max(id.params.commit_timestamp);
             plot.y_axis.set_min_max(point.y);

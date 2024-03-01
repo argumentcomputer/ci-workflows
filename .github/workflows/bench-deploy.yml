@@ -3,7 +3,20 @@
 # - `gh-pages` branch with Pages deployment set up
 # - Ideally some HTML to link to the reports, e.g. https://lurk-lab.github.io/ci-lab/
 # - Self-hosted runner attached to the caller repo with `gpu-bench` and `gh-pages` tags
-# - `justfile` with a `gpu-bench-ci` recipe that outputs `<bench-name>-<short-sha>.json`
+# - `justfile` with a `gpu-bench-ci` recipe that outputs `<bench-name>-<short-commit-hash>.json`
+#
+# The core file structure is a `benchmarks/history` directory on the `gh-pages` branch that contains:
+# - Historical data `.tar.gz` archives, one for each commit or workflow run, which contain the Criterion benchmark results
+#   and `Cargo.lock` for the given commit.
+# - Historical data in `plot-data.json`, which contains only the relevant metadata and average benchmark result for each of
+#   the saved benchmarks. This file is persistent and append-only, and if it's not found then it is re-created using each of
+#   the `tar.gz` archives
+# - `.png` plot images, created on each run using `plot-data.json`
+# - HTML to render the images.
+#
+# This structure is all created/deployed by the workflow after running the benchmarks,
+# with the only prerequisite being an existing `gh-pages` branch deployed via GitHub Pages.
+# See https://github.com/lurk-lab/ci-lab/tree/gh-pages as an example of the deployed plots
 name: Deploy GPU benchmark from default branch
 
 on:

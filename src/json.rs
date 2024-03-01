@@ -55,7 +55,7 @@ pub struct BenchParams {
 impl TryFrom<&str> for BenchParams {
     type Error = anyhow::Error;
     // Splits a <commit-hash>-<commit-date>-<params> input into a (String, `DateTime`, String) object
-    // E.g. `dd2a8e6-2024-02-20T22:48:21-05:00-rc-100` becomes ("dd2a8e6", `<DateTime>`, "rc-100")
+    // E.g. `dd2a8e6-2024-02-20T22:48:21-05:00-rc=100` becomes ("dd2a8e6", `<DateTime>`, "rc=100")
     fn try_from(value: &str) -> anyhow::Result<Self> {
         let (commit_hash, rest) = value
             .split_once('-')
@@ -90,13 +90,15 @@ pub struct BenchResult {
 }
 
 // Deserializes the benchmark JSON file into structured data for plotting
-pub fn read_json_from_file<P: AsRef<Path>>(path: P) -> Result<Vec<BenchData>, Error> {
+pub fn read_json_from_file<P: AsRef<Path>, T: for<'de> Deserialize<'de>>(
+    path: P,
+) -> Result<Vec<T>, Error> {
     let mut file = File::open(path).unwrap();
     let mut s = String::new();
     file.read_to_string(&mut s).unwrap();
 
     let mut data = vec![];
-    for result in ResilientStreamDeserializer::<BenchData>::new(&s).flatten() {
+    for result in ResilientStreamDeserializer::<T>::new(&s).flatten() {
         data.push(result);
     }
     Ok(data)
@@ -191,12 +193,14 @@ mod test {
 
     #[test]
     fn parse_bench_params() {
-        let s = "dd2a8e6-2024-02-20T22:48:21-05:00-rc-100";
+        let s = "dd2a8e6-2024-02-20T22:48:21-05:00-rc=100";
         let params = BenchParams::try_from(s).unwrap();
         let params_expected = BenchParams {
             commit_hash: "dd2a8e6".into(),
-            commit_timestamp: DateTime::parse_from_rfc3339("2024-02-20T22:48:21-05:00").map(|dt| dt.with_timezone(&Utc)).unwrap(),
-            params: "rc-100".into()
+            commit_timestamp: DateTime::parse_from_rfc3339("2024-02-20T22:48:21-05:00")
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap(),
+            params: "rc=100".into(),
         };
         assert_eq!(params, params_expected);
     }
