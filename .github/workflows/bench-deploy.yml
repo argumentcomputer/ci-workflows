@@ -3,7 +3,20 @@
 # - `gh-pages` branch with Pages deployment set up
 # - Ideally some HTML to link to the reports, e.g. https://lurk-lab.github.io/ci-lab/
 # - Self-hosted runner attached to the caller repo with `gpu-bench` and `gh-pages` tags
-# - `justfile` with a `gpu-bench-ci` recipe that outputs `<bench-name>-<short-sha>.json`
+# - `justfile` with a `gpu-bench-ci` recipe that outputs `<bench-name>-<short-commit-hash>.json`
+#
+# The core file structure is a `benchmarks/history` directory on the `gh-pages` branch that contains:
+# - Historical data `.tar.gz` archives, one for each commit or workflow run, which contain the Criterion benchmark results
+#   and `Cargo.lock` for the given commit.
+# - Historical data in `plot-data.json`, which contains only the relevant metadata and average benchmark result for each of
+#   the saved benchmarks. This file is persistent and append-only, and if it's not found then it is re-created using each of
+#   the `tar.gz` archives
+# - `.png` plot images, created on each run using `plot-data.json`
+# - HTML to render the images.
+#
+# This structure is all created/deployed by the workflow after running the benchmarks,
+# with the only prerequisite being an existing `gh-pages` branch deployed via GitHub Pages.
+# See https://github.com/lurk-lab/ci-lab/tree/gh-pages as an example of the deployed plots
 name: Deploy GPU benchmark from default branch
 
 on:
@@ -13,6 +26,10 @@ on:
       env-prefix:
         required: false
         default: 'LURK'
+        type: string
+      # List of prerequisite Ubuntu packages, separated by whitespace
+      packages:
+        required: false
         type: string
 
 jobs:
@@ -27,6 +44,9 @@ jobs:
         with:
           gpu-framework: 'cuda'
       - uses: ./.github/actions/ci-env
+      - uses: ./.github/actions/install-deps
+        with:
+          packages: "${{ inputs.packages }} pkg-config libfontconfig1-dev"
       # Install deps
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -54,28 +74,37 @@ jobs:
       - name: Run benchmarks
         run: |
           just gpu-bench-ci fibonacci
-          mv fibonacci-${{ env.COMMIT }}.json ..
+          mv fibonacci-${{ env.COMMIT }}.json ${{ github.workspace }}
         working-directory: ${{ github.workspace }}/benches
+      - uses: actions/checkout@v4
+        with:
+          repository: lurk-lab/ci-workflows
+          ref: bench-deploy
+          path: ci-workflows
       # If no plot data found, unzip all historical bench results to re-create the plots
       - name: Check for existing plot data
         run: |
-          if [ ! -f "plot-data.json" ]; then
-            shopt -s nullglob # Make glob patterns that match no files expand to a null string
-            tarballs=(./*.tar.gz)
+          shopt -s nullglob # Make glob patterns that match no files expand to a null string
+          if [ ! -f "${{ github.workspace }}/gh-pages/benchmarks/history/plot-data.json" ]; then
+            echo "No plot data found"
+            tarballs=(${{ github.workspace }}/gh-pages/benchmarks/history/*.tar.gz)
             if (( ${#tarballs[@]} )); then
               cat "${tarballs[@]}" | tar -xvzf - -i
             else
               echo "No tarballs found for extraction."
             fi
-            shopt -u nullglob # Disable nullglob option
           fi
-      # TODO: This should probably be in a subdirectory or Cargo workspace
+          shopt -u nullglob # Disable nullglob option
+        working-directory: ${{ github.workspace }}/ci-workflows
       # Saves the plot data to be deployed
       - name: Generate historical performance plot
         run: |
+          cp ${{ github.workspace }}/fibonacci-${{ env.COMMIT }}.json .
           cargo run
-          mkdir -p history
-          mv -f plot-data.json history
+          mv *.png ${{ github.workspace }}
+          mkdir -p ${{ github.workspace }}/history
+          mv -f plot-data.json ${{ github.workspace }}/history
+        working-directory: ${{ github.workspace }}/ci-workflows
       # TODO: Prettify labels for easier viewing
       # Compress the benchmark file and metadata for later analysis
       - name: Compress artifacts

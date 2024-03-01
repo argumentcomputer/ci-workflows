@@ -7,9 +7,10 @@ use std::{collections::HashMap, error::Error};
 
 use crate::json::BenchData;
 
-// TODO: Figure out how to include the commit hash as a label on the point or X-axis
+// TODO: Plot throughput as well as timings
 pub fn generate_plots(data: &Plots) -> Result<(), Box<dyn Error>> {
     for plot in data.0.iter() {
+        println!("Plotting: {} {:?}", plot.0, plot.1);
         let out_file_name = format!("./{}.png", plot.0);
         let root = BitMapBackend::new(&out_file_name, (1024, 768)).into_drawing_area();
         root.fill(&WHITE)?;
@@ -40,6 +41,7 @@ pub fn generate_plots(data: &Plots) -> Result<(), Box<dyn Error>> {
             .configure_mesh()
             .disable_x_mesh()
             .disable_y_mesh()
+            .x_label_formatter(&|x| format!("{}", x.format("%m/%d/%y")))
             .x_labels(10)
             .max_light_lines(4)
             .x_desc("Commit Date")
@@ -50,25 +52,25 @@ pub fn generate_plots(data: &Plots) -> Result<(), Box<dyn Error>> {
         for (i, line) in plot.1.lines.iter().enumerate() {
             // Draw lines between each point
             chart
-                .draw_series(LineSeries::new(
-                    line.1.iter().map(|p| (p.x, p.y)),
-                    Palette99::pick(i),
-                ))?
+                .draw_series(LineSeries::new(line.1.iter().map(|p| (p.x, p.y)), style(i)))?
                 .label(line.0)
                 // TODO: Move the legend out of the plot area
                 .legend(move |(x, y)| {
-                    Rectangle::new(
-                        [(x - 5, y - 5), (x + 5, y + 5)],
-                        Palette99::pick(i).filled(),
-                    )
+                    Rectangle::new([(x - 5, y - 5), (x + 5, y + 5)], style(i).filled())
                 });
 
-            // Draw dots on each point
-            chart.draw_series(
-                line.1
-                    .iter()
-                    .map(|p| Circle::new((p.x, p.y), 3, Palette99::pick(i).filled())),
-            )?;
+            // Draw points and text labels (Git commit) on each point
+            chart.draw_series(PointSeries::of_element(
+                line.1.iter(),
+                5,
+                style(i).filled(),
+                &|coord, size, style| {
+                    EmptyElement::at((coord.x, coord.y))
+                        + Circle::new((0, 0), size, style)
+                        + Text::new(format!("{:?}", coord.label), (0, 0), ("sans-serif", 15))
+                },
+            ))?;
+
             chart
                 .configure_series_labels()
                 .background_style(WHITE)
@@ -84,22 +86,15 @@ pub fn generate_plots(data: &Plots) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-// Convert <short-sha>-<commit-date> to a `DateTime` object, discarding `short-sha`
-fn str_to_datetime(input: &str) -> Result<DateTime<Utc>, Box<dyn Error>> {
-    // Removes the first 8 chars (assuming UTF8) for the `short-sha` and trailing '-'
-    let datetime: &str = input.split_at(8).1;
-
-    DateTime::parse_from_rfc3339(datetime).map_or_else(
-        |e| Err(format!("Failed to parse string into `DateTime`: {}", e).into()),
-        |dt| Ok(dt.with_timezone(&Utc)),
-    )
+fn style(idx: usize) -> PaletteColor<Palette99> {
+    Palette99::pick(idx)
 }
 
 // Plots of benchmark results over time/Git history. This data structure is persistent between runs,
 // saved to disk in `plot-data.json`, and is meant to be append-only to preserve historical results.
 //
 // Note:
-// Plots are separated by benchmark input e.g. `Fibonacci-num-100`. It doesn't reveal much
+// Plots are separated by benchmark group and function e.g. `Fibonacci-num=100-Prove`. It doesn't reveal much
 // information to view multiple benchmark input results on the same graph (e.g. fib-10 and fib-20),
 // since they are expected to be different. Instead, we group different benchmark parameters
 // (e.g. `rc` value) onto the same graph to compare/contrast their impact on performance.
@@ -115,24 +110,27 @@ impl Plots {
     // and adds the data to the `Plots` struct.
     pub fn add_data(&mut self, bench_data: &Vec<BenchData>) {
         for bench in bench_data {
-            let commit_date = str_to_datetime(&bench.id.bench_name).expect("Timestamp parse error");
+            let id = &bench.id;
             let point = Point {
-                x: commit_date,
+                x: id.params.commit_timestamp,
                 y: bench.result.time,
+                label: id.params.commit_hash.clone(),
             };
+            // plotters doesn't like `/` char in plot title so we use `-`
+            let plot_name = format!("{}-{}", id.group_name, id.bench_name);
 
-            if self.0.get(&bench.id.group_name).is_none() {
-                self.0.insert(bench.id.group_name.to_owned(), Plot::new());
+            if self.0.get(&plot_name).is_none() {
+                self.0.insert(plot_name.clone(), Plot::new());
             }
-            let plot = self.0.get_mut(&bench.id.group_name).unwrap();
+            let plot = self.0.get_mut(&plot_name).unwrap();
 
-            plot.x_axis.set_min_max(commit_date);
+            plot.x_axis.set_min_max(id.params.commit_timestamp);
             plot.y_axis.set_min_max(point.y);
 
-            if plot.lines.get(&bench.id.params).is_none() {
-                plot.lines.insert(bench.id.params.to_owned(), vec![]);
+            if plot.lines.get(&id.params.params).is_none() {
+                plot.lines.insert(id.params.params.to_owned(), vec![]);
             }
-            plot.lines.get_mut(&bench.id.params).unwrap().push(point);
+            plot.lines.get_mut(&id.params.params).unwrap().push(point);
         }
         // Sort each data point in each line for each plot
         for plot in self.0.iter_mut() {
@@ -168,6 +166,8 @@ pub struct Point {
     x: DateTime<Utc>,
     // Benchmark time (avg.)
     y: f64,
+    // Commit hash (short)
+    label: String,
 }
 
 // Min. and max. X axis values for a given plot
