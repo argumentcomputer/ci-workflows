@@ -14,6 +14,10 @@ on:
         required: false
         default: 'LURK'
         type: string
+      # List of prerequisite Ubuntu packages, separated by whitespace
+      packages:
+        required: false
+        type: string
 
 jobs:
   benchmark:
@@ -27,7 +31,10 @@ jobs:
         with:
           gpu-framework: 'cuda'
       - uses: ./.github/actions/ci-env
-      # Install deps
+      - uses: ./.github/actions/install-deps
+        if: inputs.packages != ''
+        with:
+          packages: "${{ inputs.packages }}"
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2

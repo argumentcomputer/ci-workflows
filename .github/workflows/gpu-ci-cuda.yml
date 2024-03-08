@@ -14,6 +14,10 @@ on:
         required: false
         default: ""
         type: string
+      # List of prerequisite Ubuntu packages, separated by whitespace
+      packages:
+        required: false
+        type: string
 
 jobs:
   cuda:
@@ -28,6 +32,10 @@ jobs:
         with:
           gpu-framework: 'cuda'
       - uses: ./.github/actions/ci-env
+      - uses: ./.github/actions/install-deps
+        if: inputs.packages != ''
+        with:
+          packages: "${{ inputs.packages }}"
       - uses: actions/checkout@v4
         with:
           submodules: recursive

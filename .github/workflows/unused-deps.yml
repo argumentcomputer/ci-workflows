@@ -8,11 +8,14 @@ on:
   #  - cron: "0 0 * * *"
   workflow_call: 
     inputs:
-        # comma-separated list of features to check
-        features:
-          required: false
-          default: ""
-          type: string
+      # comma-separated list of features to check
+      features:
+        required: false
+        default: ""
+        type: string
+      packages:
+        required: false
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -26,6 +29,10 @@ jobs:
         with:
           repository: lurk-lab/ci-workflows
           path: ci-workflows
+      - uses: ci-workflows/.github/actions/install-deps
+        if: inputs.packages != ''
+        with:
+          packages: "${{ inputs.packages }}"
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@cargo-udeps
       # Normally running cargo-udeps requires use of a nightly compiler

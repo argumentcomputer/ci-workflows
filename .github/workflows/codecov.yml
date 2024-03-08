@@ -7,6 +7,10 @@ on:
         required: false
         default: 'ubuntu-latest'
         type: string
+      # List of prerequisite Ubuntu packages, separated by whitespace
+      packages:
+        required: false
+        type: string
 
 jobs:
   codecov-grcov:
@@ -19,6 +23,10 @@ jobs:
         with:
           repository: lurk-lab/ci-workflows
       - uses: ./.github/actions/ci-env
+      - uses: ./.github/actions/install-deps
+        if: inputs.packages != ''
+        with:
+          packages: "${{ inputs.packages }}"
       - uses: actions/checkout@v4
         with:
           submodules: recursive

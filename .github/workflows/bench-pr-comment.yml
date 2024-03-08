@@ -36,6 +36,10 @@ on:
       default-env:
         type: string
         required: false
+      # List of prerequisite Ubuntu packages, separated by whitespace
+      packages:
+        required: false
+        type: string
 
 jobs:
   setup:
@@ -135,6 +139,10 @@ jobs:
         with:
           gpu-framework: 'cuda'
       - uses: ./.github/actions/ci-env
+      - uses: ./.github/actions/install-deps
+        if: inputs.packages != ''
+        with:
+          packages: "${{ inputs.packages }}"
         # Get base branch of the PR
       - uses: xt0rted/pull-request-comment-branch@v2
         id: comment-branch

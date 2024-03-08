@@ -8,6 +8,11 @@ name: Comparative benchmarks on GPU
 
 on:
   workflow_call:
+    inputs:
+      # List of prerequisite Ubuntu packages, separated by whitespace
+      packages:
+        required: false
+        type: string
 
 jobs:
   # Run comparative benchmark against base branch, open issue on regression
@@ -22,6 +27,10 @@ jobs:
         with:
           gpu-framework: 'cuda'
       - uses: ./.github/actions/ci-env
+      - uses: ./.github/actions/install-deps
+        if: inputs.packages != ''
+        with:
+          packages: "${{ inputs.packages }}"
       - uses: actions/checkout@v4
       # Install dependencies
       - uses: dtolnay/rust-toolchain@stable
