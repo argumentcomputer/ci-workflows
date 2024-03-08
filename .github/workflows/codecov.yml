@@ -32,7 +32,7 @@ jobs:
       - name: Clean the workspace
         run: cargo llvm-cov clean --workspace
       - name: Build
-        run: cargo build --profile dev-ci
+        run: cargo build --workspace --release
       - name: Collect coverage data
         run: cargo llvm-cov nextest --lcov --output-path lcov.info --profile ci --release --workspace
       - name: Upload coverage data to codecov
