@@ -7,6 +7,10 @@ on:
       packages:
         required: false
         type: string
+      # Runs `cargo fmt +nightly`, for use with nightly config options in `rustfmt.toml` 
+      nightly-fmt:
+        required: false
+        type: boolean
 
 jobs:
   # Rustfmt, clippy, and doctests
@@ -27,10 +31,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: dtolnay/rust-toolchain@nightly
+        if: inputs.nightly-fmt
+        with:
+          components: rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: Check Rustfmt Code Style
         run: |
-          cargo fmt --all -- --check
+          if [[ "${{ inputs.nightly-fmt }}" == "true" ]]; then
+            cargo +nightly fmt --all -- --check
+          else
+            cargo fmt --all -- --check
+          fi
       - name: Check clippy warnings
         run: |
           if $(cargo --list|grep -q xclippy); then 
