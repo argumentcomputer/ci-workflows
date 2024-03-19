@@ -11,6 +11,10 @@ name: Check downstream dependency compiles
 
 on:
   workflow_call:
+    secrets:
+      SSH_PRIVATE_KEY:
+        required: false
+        description: ''
     inputs:
       runner:
         required: false
@@ -21,13 +25,18 @@ on:
         required: false
         default: 'lurk-lab/lurk-rs'
         type: string
+      # Used to checkout private repos
+      ssh-key:
+        required: false
+        default: false
+        type: boolean
       # List of prerequisite Ubuntu packages, separated by whitespace
       packages:
         required: false
         type: string
 
 jobs:
-  check-lurk-compiles:
+  check-downstream-compiles:
     if: github.event_name == 'pull_request'
     runs-on: ${{ inputs.runner }}
     steps:
@@ -39,6 +48,10 @@ jobs:
         if: inputs.packages != ''
         with:
           packages: "${{ inputs.packages }}"
+      - uses: webfactory/ssh-agent@v0.9.0
+        if: inputs.ssh-key
+        with:
+          ssh-private-key: "${{ secrets.SSH_PRIVATE_KEY }}"
       - name: Set env
         run: |
           echo "DOWNSTREAM_REPO=$(echo ${{ inputs.repository }} | awk -F'/' '{ print $2 }')" | tee -a $GITHUB_ENV
@@ -48,10 +61,18 @@ jobs:
           path: ${{ github.workspace }}/${{ env.UPSTREAM_REPO }}
           submodules: recursive
       - uses: actions/checkout@v4
+        if: inputs.ssh-key != true
         with:
           repository: ${{ inputs.repository }}
           path: ${{ github.workspace }}/${{ env.DOWNSTREAM_REPO }}
           submodules: recursive
+      - uses: actions/checkout@v4
+        if: inputs.ssh-key
+        with:
+          repository: ${{ inputs.repository }}
+          path: ${{ github.workspace }}/${{ env.DOWNSTREAM_REPO }}
+          submodules: recursive
+          ssh-key: "${{ secrets.SSH_PRIVATE_KEY }}"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Patch Cargo.toml
@@ -60,19 +81,16 @@ jobs:
           URL=https://github.com/${{ github.repository }}
 
           # Assumes at least one dependency in the current workspace is used by the downstream crate
-          printf "\n[patch.'$URL']\n" >> Cargo.toml
+          printf "\n[patch.'$URL']\n" | tee -a Cargo.toml
 
-          # Get a list of all dependencies used by the downstream crate workspace
+          # Get a list of all upstream dependencies used by the downstream crate workspace
           DEPENDENCIES=$(grep -rsh "git = \"$URL\"" --include="Cargo.toml" .)
-          #echo "$DEPENDENCIES"
 
           # Extract the dependency names and check for package renames 
           DEP_NAMES=$(echo "$DEPENDENCIES" | awk '/package =/{for (i=1; i<=NF; i++) if ($i == "package") {name=$(i+2); print substr(name, 2, length(name)-2);} found=1} !/package =/{print $1}' | sort -u)
-          echo "$DEP_NAMES"
 
           # Get each workspace member of the upstream crate if they exist
           WORKSPACE_PATHS=$(sed -n '/members = \[/,/]/ { /members = \[/d; /]/d; s/^\s*"\([^"]*\)",\?/\1/p }' ../${{ env.UPSTREAM_REPO }}/Cargo.toml)
-          echo "$WORKSPACE_PATHS"
 
           # Write the Git patch for each dependency used downstream
           for crate in $DEP_NAMES; do
@@ -82,9 +100,7 @@ jobs:
             else
               crate_path=""
             fi
-            echo "Crate $crate has path = $crate_path"
-            echo "$crate = { path = \"../${{ env.UPSTREAM_REPO }}/$crate_path\" }" >> Cargo.toml
-            echo "Patched"
+            echo "$crate = { path = \"../${{ env.UPSTREAM_REPO }}/$crate_path\" }" | tee -a Cargo.toml
           done
       - name: Check downstream types don't break spectacularly
         working-directory: ${{ github.workspace }}/${{ env.DOWNSTREAM_REPO }}
