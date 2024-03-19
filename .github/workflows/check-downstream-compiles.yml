@@ -1,0 +1,92 @@
+# Patches a dependent crate with any upstream changes and checks that the former compiles
+#
+# Example:
+# When run in `arecibo`, this workflow will check out `lurk-rs`, patch it with the local `arecibo` path,
+# and check whether `lurk-rs` still builds.
+#
+# Only supports patching Git dependencies for now, crates.io patches are a TODO
+# This workflow is not intended to be a required status check, but to surface breaking changes to 
+# downstream repos for further review on e.g. `pull_request`.
+name: Check downstream dependency compiles
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        required: false
+        default: 'ubuntu-latest'
+        type: string
+      # Downstream repo to check
+      repository:
+        required: false
+        default: 'lurk-lab/lurk-rs'
+        type: string
+      # List of prerequisite Ubuntu packages, separated by whitespace
+      packages:
+        required: false
+        type: string
+
+jobs:
+  check-lurk-compiles:
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: lurk-lab/ci-workflows
+      - uses: ./.github/actions/ci-env
+      - uses: ./.github/actions/install-deps
+        if: inputs.packages != ''
+        with:
+          packages: "${{ inputs.packages }}"
+      - name: Set env
+        run: |
+          echo "DOWNSTREAM_REPO=$(echo ${{ inputs.repository }} | awk -F'/' '{ print $2 }')" | tee -a $GITHUB_ENV
+          echo "UPSTREAM_REPO=$(echo ${{ github.repository }} | awk -F'/' '{ print $2 }')" | tee -a $GITHUB_ENV
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ github.workspace }}/${{ env.UPSTREAM_REPO }}
+          submodules: recursive
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository }}
+          path: ${{ github.workspace }}/${{ env.DOWNSTREAM_REPO }}
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Patch Cargo.toml
+        working-directory: ${{ github.workspace }}/${{ env.DOWNSTREAM_REPO }}
+        run: |
+          URL=https://github.com/${{ github.repository }}
+
+          # Assumes at least one dependency in the current workspace is used by the downstream crate
+          printf "\n[patch.'$URL']\n" >> Cargo.toml
+
+          # Get a list of all dependencies used by the downstream crate workspace
+          DEPENDENCIES=$(grep -rsh "git = \"$URL\"" --include="Cargo.toml" .)
+          #echo "$DEPENDENCIES"
+
+          # Extract the dependency names and check for package renames 
+          DEP_NAMES=$(echo "$DEPENDENCIES" | awk '/package =/{for (i=1; i<=NF; i++) if ($i == "package") {name=$(i+2); print substr(name, 2, length(name)-2);} found=1} !/package =/{print $1}' | sort -u)
+          echo "$DEP_NAMES"
+
+          # Get each workspace member of the upstream crate if they exist
+          WORKSPACE_PATHS=$(sed -n '/members = \[/,/]/ { /members = \[/d; /]/d; s/^\s*"\([^"]*\)",\?/\1/p }' ../${{ env.UPSTREAM_REPO }}/Cargo.toml)
+          echo "$WORKSPACE_PATHS"
+
+          # Write the Git patch for each dependency used downstream
+          for crate in $DEP_NAMES; do
+            result=$(echo "$WORKSPACE_PATHS" | grep -ohs "\w*$crate\w*" | cat)
+            if [[ -n $result ]]; then
+              crate_path=$result
+            else
+              crate_path=""
+            fi
+            echo "Crate $crate has path = $crate_path"
+            echo "$crate = { path = \"../${{ env.UPSTREAM_REPO }}/$crate_path\" }" >> Cargo.toml
+            echo "Patched"
+          done
+      - name: Check downstream types don't break spectacularly
+        working-directory: ${{ github.workspace }}/${{ env.DOWNSTREAM_REPO }}
+        run: cargo check --workspace --tests --benches --examples
+
