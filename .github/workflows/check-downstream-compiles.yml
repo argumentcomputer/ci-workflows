@@ -12,7 +12,7 @@ name: Check downstream dependency compiles
 on:
   workflow_call:
     secrets:
-      SSH_PRIVATE_KEY:
+      REPO_TOKEN:
         required: false
         description: ''
     inputs:
@@ -26,7 +26,7 @@ on:
         default: 'lurk-lab/lurk-rs'
         type: string
       # Used to checkout private repos
-      ssh-key:
+      token:
         required: false
         default: false
         type: boolean
@@ -48,10 +48,6 @@ jobs:
         if: inputs.packages != ''
         with:
           packages: "${{ inputs.packages }}"
-      - uses: webfactory/ssh-agent@v0.9.0
-        if: inputs.ssh-key
-        with:
-          ssh-private-key: "${{ secrets.SSH_PRIVATE_KEY }}"
       - name: Set env
         run: |
           echo "DOWNSTREAM_REPO=$(echo ${{ inputs.repository }} | awk -F'/' '{ print $2 }')" | tee -a $GITHUB_ENV
@@ -61,18 +57,18 @@ jobs:
           path: ${{ github.workspace }}/${{ env.UPSTREAM_REPO }}
           submodules: recursive
       - uses: actions/checkout@v4
-        if: inputs.ssh-key != true
+        if: inputs.token != true
         with:
           repository: ${{ inputs.repository }}
           path: ${{ github.workspace }}/${{ env.DOWNSTREAM_REPO }}
           submodules: recursive
       - uses: actions/checkout@v4
-        if: inputs.ssh-key
+        if: inputs.token
         with:
           repository: ${{ inputs.repository }}
           path: ${{ github.workspace }}/${{ env.DOWNSTREAM_REPO }}
           submodules: recursive
-          ssh-key: "${{ secrets.SSH_PRIVATE_KEY }}"
+          token: "${{ secrets.REPO_TOKEN }}"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Patch Cargo.toml
@@ -84,9 +80,10 @@ jobs:
           printf "\n[patch.'$URL']\n" | tee -a Cargo.toml
 
           # Get a list of all upstream dependencies used by the downstream crate workspace
+          # This is done by checking for each instance of `git = <upstream_url>` in any of the downstream `Cargo.toml` files
           DEPENDENCIES=$(grep -rsh "git = \"$URL\"" --include="Cargo.toml" .)
 
-          # Extract the dependency names and check for package renames 
+          # Extract the dependency names and check for package renames, removing duplicates
           DEP_NAMES=$(echo "$DEPENDENCIES" | awk '/package =/{for (i=1; i<=NF; i++) if ($i == "package") {name=$(i+2); print substr(name, 2, length(name)-2);} found=1} !/package =/{print $1}' | sort -u)
 
           # Get each workspace member of the upstream crate if they exist
