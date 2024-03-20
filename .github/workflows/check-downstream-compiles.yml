@@ -34,6 +34,11 @@ on:
       packages:
         required: false
         type: string
+      # Patch with SSH instead of HTTPS
+      patch-ssh:
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   check-downstream-compiles:
@@ -74,7 +79,11 @@ jobs:
       - name: Patch Cargo.toml
         working-directory: ${{ github.workspace }}/${{ env.DOWNSTREAM_REPO }}
         run: |
-          URL=https://github.com/${{ github.repository }}
+          if [[ "${{ inputs.patch-ssh }}" == "true" ]]; then
+            URL=ssh://git@github.com/${{ github.repository }}
+          else
+            URL=https://github.com/${{ github.repository }}
+          fi
 
           # Assumes at least one dependency in the current workspace is used by the downstream crate
           printf "\n[patch.'$URL']\n" | tee -a Cargo.toml
@@ -82,16 +91,23 @@ jobs:
           # Get a list of all upstream dependencies used by the downstream crate workspace
           # This is done by checking for each instance of `git = <upstream_url>` in any of the downstream `Cargo.toml` files
           DEPENDENCIES=$(grep -rsh "git = \"$URL\"" --include="Cargo.toml" .)
+          echo "DEPENDENCIES"
+          echo $DEPENDENCIES
 
           # Extract the dependency names and check for package renames, removing duplicates
           DEP_NAMES=$(echo "$DEPENDENCIES" | awk '/package =/{for (i=1; i<=NF; i++) if ($i == "package") {name=$(i+2); print substr(name, 2, length(name)-2);} found=1} !/package =/{print $1}' | sort -u)
+          echo "DEP_NAMES"
+          echo $DEP_NAMES
 
           # Get each workspace member of the upstream crate if they exist
           WORKSPACE_PATHS=$(sed -n '/members = \[/,/]/ { /members = \[/d; /]/d; s/^\s*"\([^"]*\)",\?/\1/p }' ../${{ env.UPSTREAM_REPO }}/Cargo.toml)
+          echo "WORKSPACE_PATHS"
+          echo $WORKSPACE_PATHS
 
           # Write the Git patch for each dependency used downstream
           for crate in $DEP_NAMES; do
             result=$(echo "$WORKSPACE_PATHS" | grep -ohs "\w*$crate\w*" | cat)
+            echo "Result for crate $crate: $result"
             if [[ -n $result ]]; then
               crate_path=$result
             else
