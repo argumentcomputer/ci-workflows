@@ -12,7 +12,7 @@ name: Check downstream dependency compiles
 on:
   workflow_call:
     secrets:
-      REPO_TOKEN:
+      PRIVATE_PULL_TOKEN:
         required: false
         description: ''
     inputs:
@@ -73,12 +73,13 @@ jobs:
           repository: ${{ inputs.repository }}
           path: ${{ github.workspace }}/${{ env.DOWNSTREAM_REPO }}
           submodules: recursive
-          token: "${{ secrets.REPO_TOKEN }}"
+          token: "${{ secrets.PRIVATE_PULL_TOKEN }}"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Patch Cargo.toml
         working-directory: ${{ github.workspace }}/${{ env.DOWNSTREAM_REPO }}
         run: |
+          # Get each workspace package and relative path of the upstream crate, storing them in a map of former to latter
           if [[ "${{ inputs.patch-ssh }}" == "true" ]]; then
             URL=ssh://git@github.com/${{ github.repository }}
           else
@@ -91,28 +92,27 @@ jobs:
           # Get a list of all upstream dependencies used by the downstream crate workspace
           # This is done by checking for each instance of `git = <upstream_url>` in any of the downstream `Cargo.toml` files
           DEPENDENCIES=$(grep -rsh "git = \"$URL\"" --include="Cargo.toml" .)
-          echo "DEPENDENCIES"
-          echo $DEPENDENCIES
 
           # Extract the dependency names and check for package renames, removing duplicates
           DEP_NAMES=$(echo "$DEPENDENCIES" | awk '/package =/{for (i=1; i<=NF; i++) if ($i == "package") {name=$(i+2); print substr(name, 2, length(name)-2);} found=1} !/package =/{print $1}' | sort -u)
-          echo "DEP_NAMES"
-          echo $DEP_NAMES
 
-          # Get each workspace member of the upstream crate if they exist
-          WORKSPACE_PATHS=$(sed -n '/members = \[/,/]/ { /members = \[/d; /]/d; s/^\s*"\([^"]*\)",\?/\1/p }' ../${{ env.UPSTREAM_REPO }}/Cargo.toml)
-          echo "WORKSPACE_PATHS"
-          echo $WORKSPACE_PATHS
+          shopt -s nullglob
+          # Collect the `package path` pairs for each subcrate in the directory, regardless of whether it's a workspace member
+          SUBCRATES=$(grep -r -A1 --no-group-separator "\[package\]" --exclude-dir='.' --exclude-dir='target' ../${{ env.UPSTREAM_REPO }}/*/Cargo.toml | sed -n 'n;p' | awk -F'/' '{split($NF,a,"\""); print a[2], $(NF-1)}')
+          shopt -u nullglob
 
-          # Write the Git patch for each dependency used downstream
+          # Store the subcrates in associative array for retrieval when patching `Cargo.toml`
+          declare -A subcrates
+          while IFS= read -r line; do
+              pair=($line)
+              subcrates[${pair[0]}]=${pair[1]}
+          done <<< "$SUBCRATES"
+
+          # Write Git patches for each dependency used downstream
+          # Note: The top-level workspace package if used will be included in `DEP_NAMES`, but not in `subcrates`
+          # Therefore, below will append an empty string to the top-level path and patch it correctly
           for crate in $DEP_NAMES; do
-            result=$(echo "$WORKSPACE_PATHS" | grep -ohs "\w*$crate\w*" | cat)
-            echo "Result for crate $crate: $result"
-            if [[ -n $result ]]; then
-              crate_path=$result
-            else
-              crate_path=""
-            fi
+            crate_path="${subcrates[$crate]}"
             echo "$crate = { path = \"../${{ env.UPSTREAM_REPO }}/$crate_path\" }" | tee -a Cargo.toml
           done
       - name: Check downstream types don't break spectacularly
