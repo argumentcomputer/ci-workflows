@@ -51,4 +51,3 @@ jobs:
       - name: Check Lurk-rs types don't break spectacularly
         working-directory: ${{ github.workspace }}/lurk-rs
         run: cargo check --workspace --tests --benches --examples
-
