@@ -1,0 +1,53 @@
+name: Check upstream `lurk-rs` compiles
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        required: false
+        default: 'ubuntu-latest'
+        type: string
+      # List of prerequisite Ubuntu packages, separated by whitespace
+      packages:
+        required: false
+        type: string
+
+jobs:
+  check-lurk-compiles:
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: lurk-lab/ci-workflows
+      - uses: ./.github/actions/ci-env
+      - uses: ./.github/actions/install-deps
+        if: inputs.packages != ''
+        with:
+          packages: "${{ inputs.packages }}"
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: lurk-lab/lurk-rs
+          path: ./lurk-rs
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Patch Cargo.toml
+        working-directory: ${{ github.workspace }}/lurk-rs
+        run: |
+          URL=https://github.com/${{ github.repository }}
+          # the dependency we want to patch is usually the same as the package, but
+          # we e.g. want to override dependency 'nova' with an 'arecibo' package
+          DEPENDENCY=$(grep "git = \"$URL\"" Cargo.toml | awk '{ print $1 }')
+          PACKAGE=$(grep "git = \"$URL\"" Cargo.toml | grep -oP 'package = "\K[^"]*'| cat)
+          echo "[patch.'$URL']" >> Cargo.toml                                       
+          if [ ! -z "$PACKAGE" ];                  
+          then
+            echo "$DEPENDENCY = { path='../', package='$PACKAGE' }" >> Cargo.toml
+          else
+            echo "$DEPENDENCY = { path='../' }" >> Cargo.toml
+          fi
+      - name: Check Lurk-rs types don't break spectacularly
+        working-directory: ${{ github.workspace }}/lurk-rs
+        run: cargo check --workspace --tests --benches --examples
