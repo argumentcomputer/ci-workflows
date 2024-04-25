@@ -1,0 +1,67 @@
+# Default use case: run on `pull_request` and check the changes don't break a downstream crate
+name: Check downstream compiles
+
+description: Patch dependent crate with upstream changes and check it builds
+
+inputs:
+  # Path to the upstream repo relative to `${{ github.workspace }}`
+  upstream-path:
+    description: 'path to upstream repo'
+    required: true
+    type: string
+  # Path to the downstream repo relative to `${{ github.workspace }}`
+  downstream-path:
+    description: 'Path to upstream repo'
+    required: true
+    type: string
+  # Patch with an HTTPS or SSH URL. Defaults to HTTPS
+  patch-ssh:
+    description: 'Patch with HTTPS or SSH'
+    required: false
+    default: false
+    type: boolean
+
+runs:
+  using: "composite"
+  steps: 
+    - name: Patch Cargo.toml
+      shell: bash
+      working-directory: ${{ github.workspace }}/${{ inputs.downstream-path }}
+      run: |
+        if [[ "${{ inputs.patch-ssh }}" == "true" ]]; then
+          URL=ssh://git@github.com/${{ github.repository }}
+        else
+          URL=https://github.com/${{ github.repository }}
+        fi
+
+        # Assumes at least one dependency in the current workspace is used by the downstream crate
+        printf "\n[patch.'$URL']\n" | tee -a Cargo.toml
+
+        # Get a list of all upstream dependencies used by the downstream crate workspace
+        # This is done by checking for each instance of `git = <upstream_url>` in any of the downstream `Cargo.toml` files
+        DEPENDENCIES=$(grep -rsh "git = \"$URL" --include="Cargo.toml" .)
+
+        # Extract the dependency names and check for package renames, removing duplicates
+        DEP_NAMES=$(echo "$DEPENDENCIES" | awk '/package =/{for (i=1; i<=NF; i++) if ($i == "package") {name=$(i+2); print substr(name, 2, length(name)-2);} found=1} !/package =/{print $1}' | sort -u)
+
+        shopt -s nullglob
+        # Collect the `(path, package)` pairs for most subcrates in the upstream directory, regardless of whether they are workspace members
+        SUBCRATES=$(find ${{ github.workspace }}/${{ inputs.upstream-path }} \( -type d \( -name target -o -name examples -o -name tests -o -name cli \) -prune \) -o -name Cargo.toml -exec awk '/^\[package\]/{flag=1} flag && /name\s*=/ {gsub(/"/, "", $3); package=$3} /^\[[^p]/ && flag {exit} END{if(package != "") print FILENAME, package}' {} \; | sed 's|/Cargo.toml | |g')
+        shopt -u nullglob
+
+        # Store the subcrates in associative array for retrieval when patching `Cargo.toml`
+        declare -A subcrates
+        while IFS= read -r line; do
+            pair=($line)
+            subcrates[${pair[1]}]=${pair[0]}
+        done <<< "$SUBCRATES"
+
+        # Write Git patches for each dependency used downstream
+        for crate in $DEP_NAMES; do
+          crate_path="${subcrates[$crate]}"
+          echo "$crate = { path = \"$crate_path\" }" | tee -a Cargo.toml
+        done
+    - name: Check downstream types don't break spectacularly
+      shell: bash 
+      working-directory: ${{ github.workspace }}/${{ inputs.downstream-path }}
+      run: cargo check --workspace --tests --benches --examples
