@@ -126,12 +126,12 @@ jobs:
       - name: Set env vars
         run: |
           # Trims newlines that may arise from `$GITHUB_OUTPUT`
-          for var in "${{ inputs.default-env }}"
+          for var in ${{ inputs.default-env }}
           do
             echo "$(echo $var | tr -d '\n')" | tee -a $GITHUB_ENV
           done
           # Overrides default env vars with those specified in the `issue_comment` input if identically named
-          for var in "${{ needs.setup.outputs.env-vars }}"
+          for var in ${{ needs.setup.outputs.env-vars }}
           do
             echo "$(echo $var | tr -d '\n')" | tee -a $GITHUB_ENV
           done
