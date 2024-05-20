@@ -54,9 +54,8 @@ runs:
             subcrates[${pair[1]}]=${pair[0]}
         done <<< "$SUBCRATES"
 
+        # Write Git patches for each dependency used downstream
         for file in $(find . -name Cargo.toml -not -path "./target/*"); do
-          # Write Git patches for each dependency used downstream
-
           !(grep -q "\[patch.'$URL']" $file) && printf "\n\n[patch.'$URL']\n" | tee -a $file
 
           for crate in $DEP_NAMES; do
