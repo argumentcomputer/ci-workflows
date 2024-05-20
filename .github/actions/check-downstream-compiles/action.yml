@@ -24,6 +24,7 @@ inputs:
 runs:
   using: "composite"
   steps: 
+    # Assumes at least one dependency in the current workspace is used by the downstream crate
     - name: Patch Cargo.toml
       shell: bash
       working-directory: ${{ github.workspace }}/${{ inputs.downstream-path }}
@@ -33,9 +34,6 @@ runs:
         else
           URL=https://github.com/${{ github.repository }}
         fi
-
-        # Assumes at least one dependency in the current workspace is used by the downstream crate
-        printf "\n[patch.'$URL']\n" | tee -a Cargo.toml
 
         # Get a list of all upstream dependencies used by the downstream crate workspace
         # This is done by checking for each instance of `git = <upstream_url>` in any of the downstream `Cargo.toml` files
@@ -56,10 +54,15 @@ runs:
             subcrates[${pair[1]}]=${pair[0]}
         done <<< "$SUBCRATES"
 
-        # Write Git patches for each dependency used downstream
-        for crate in $DEP_NAMES; do
-          crate_path="${subcrates[$crate]}"
-          echo "$crate = { path = \"$crate_path\" }" | tee -a Cargo.toml
+        for file in $(find . -name Cargo.toml -not -path "./target/*"); do
+          # Write Git patches for each dependency used downstream
+
+          !(grep -q "\[patch.'$URL']" $file) && printf "\n\n[patch.'$URL']\n" | tee -a $file
+
+          for crate in $DEP_NAMES; do
+            crate_path="${subcrates[$crate]}"
+            echo "$crate = { path = \"$crate_path\" }" | tee -a $file
+          done
         done
     - name: Check downstream types don't break spectacularly
       shell: bash 
