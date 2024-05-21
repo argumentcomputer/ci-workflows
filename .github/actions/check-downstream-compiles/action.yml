@@ -44,6 +44,7 @@ runs:
 
         shopt -s nullglob
         # Collect the `(path, package)` pairs for most subcrates in the upstream directory, regardless of whether they are workspace members
+        # Patch paths are absolute so they can be used in any Cargo.toml
         SUBCRATES=$(find ${{ github.workspace }}/${{ inputs.upstream-path }} \( -type d \( -name target -o -name examples -o -name tests -o -name cli \) -prune \) -o -name Cargo.toml -exec awk '/^\[package\]/{flag=1} flag && /name\s*=/ {gsub(/"/, "", $3); package=$3} /^\[[^p]/ && flag {exit} END{if(package != "") print FILENAME, package}' {} \; | sed 's|/Cargo.toml | |g')
         shopt -u nullglob
 
@@ -54,14 +55,28 @@ runs:
             subcrates[${pair[1]}]=${pair[0]}
         done <<< "$SUBCRATES"
 
-        # Write Git patches for each dependency used downstream
-        for file in $(find . -name Cargo.toml -not -path "./target/*"); do
-          !(grep -q "\[patch.'$URL']" $file) && printf "\n\n[patch.'$URL']\n" | tee -a $file
+        # Get list of Git patches for each dependency used downstream
+        for crate in $DEP_NAMES; do
+          crate_path="${subcrates[$crate]}"
+          echo "$crate = { path = \"$crate_path\" }" | tee -a patches.txt
+        done
 
-          for crate in $DEP_NAMES; do
-            crate_path="${subcrates[$crate]}"
-            echo "$crate = { path = \"$crate_path\" }" | tee -a $file
-          done
+        ESCAPED_URL=$(printf '%s\n' "$URL" | sed 's/[\/&]/\\&/g')
+
+        # Write patches to all Cargo.toml files in the directory
+        for file in $(find . -name Cargo.toml -not -path "./target/*"); do
+          # Add the `[patch]` section if it doesn't exist already, as duplicates aren't allowed
+          if ! grep -q "\[patch.'$URL'\]" $file; then
+            printf "\n\n[patch.'$URL']\n" >> $file
+          # If `[patch]` does exist, remove any duplicate keys before inserting patches
+          else
+            for crate in $DEP_NAMES; do
+              sed -i "/\[patch.'$ESCAPED_URL'\]/,/^$/ { /^$crate.*$/d }" $file
+            done
+          fi
+
+          # Append all patches after the `[patch.'ssh']` line
+          sed -i "/\[patch.'$ESCAPED_URL'\]/r patches.txt" $file
         done
     - name: Check downstream types don't break spectacularly
       shell: bash 
