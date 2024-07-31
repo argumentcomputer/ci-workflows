@@ -53,6 +53,8 @@ runs:
         SUBCRATES=$(find ${{ github.workspace }}/${{ inputs.upstream-path }} \( -type d \( -name target -o -name examples -o -name tests -o -name cli \) -prune \) -o -name Cargo.toml -exec awk '/^\[package\]/{flag=1} flag && /name\s*=/ {gsub(/"/, "", $3); package=$3} /^\[[^p]/ && flag {exit} END{if(package != "") print FILENAME, package}' {} \; | sed 's|/Cargo.toml | |g')
         shopt -u nullglob
 
+        echo $SUBCRATES
+
         # Store the subcrates in associative array for retrieval when patching `Cargo.toml`
         declare -A subcrates
         while IFS= read -r line; do
