@@ -109,6 +109,8 @@ runs:
       shell: bash 
       working-directory: ${{ github.workspace }}/${{ inputs.downstream-path }}
       run: |
+        ls
+        ls ..
         cargo check --workspace --tests --benches --examples
     - name: Check more downstream types don't break spectacularly
       if: ${{ inputs.more-paths != '' }}
