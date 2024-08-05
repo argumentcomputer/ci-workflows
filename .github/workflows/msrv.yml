@@ -1,5 +1,5 @@
 # NOTE: Does not currently work with Cargo workspaces
-# See https://github.com/lurk-lab/ci-workflows/issues/8
+# See https://github.com/argumentcomputer/ci-workflows/issues/8
 name: Check MSRV
 
 on:
@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: lurk-lab/ci-workflows
+          repository: argumentcomputer/ci-workflows
       - uses: ./.github/actions/ci-env
       - uses: ./.github/actions/install-deps
         if: inputs.packages != ''

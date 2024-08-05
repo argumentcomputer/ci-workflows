@@ -3,7 +3,7 @@ name: Sync changes from upstream repo
 on:
   workflow_call:
     inputs:
-      # Input must be formatted as "owner/repo", e.g. "lurk-lab/lurk-rs"
+      # Input must be formatted as "owner/repo", e.g. "argumentcomputer/lurk-rs"
       repository:
         required: true
         type: string

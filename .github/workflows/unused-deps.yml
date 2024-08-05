@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          repository: lurk-lab/ci-workflows
+          repository: argumentcomputer/ci-workflows
           path: ci-workflows
       - uses: ./ci-workflows/.github/actions/install-deps
         if: inputs.packages != ''
