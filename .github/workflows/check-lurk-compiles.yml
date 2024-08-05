@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: lurk-lab/ci-workflows
+          repository: argumentcomputer/ci-workflows
       - uses: ./.github/actions/ci-env
       - uses: ./.github/actions/install-deps
         if: inputs.packages != ''
@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          repository: lurk-lab/lurk-rs
+          repository: argumentcomputer/lurk-rs
           path: ./lurk-rs
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable

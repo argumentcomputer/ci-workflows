@@ -1,7 +1,7 @@
 # Intended to run on the `push` trigger
 # Pre-requisites
 # - `gh-pages` branch with Pages deployment set up
-# - Ideally some HTML to link to the reports, e.g. https://lurk-lab.github.io/ci-lab/
+# - Ideally some HTML to link to the reports, e.g. https://argumentcomputer.github.io/ci-lab/
 # - Self-hosted runner attached to the caller repo with `gpu-bench` and `gh-pages` tags
 # - `justfile` with a `gpu-bench-ci` recipe that outputs `<bench-name>-<short-sha>.json`
 name: Deploy GPU benchmark from default branch
@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: lurk-lab/ci-workflows
+          repository: argumentcomputer/ci-workflows
       - uses: ./.github/actions/gpu-setup
         with:
           gpu-framework: 'cuda'
