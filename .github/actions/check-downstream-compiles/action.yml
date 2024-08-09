@@ -14,107 +14,24 @@ inputs:
     description: 'Path to upstream repo'
     required: true
     type: string
-  # Patch with an HTTPS or SSH URL. Defaults to HTTPS
-  patch-ssh:
-    description: 'Patch with HTTPS or SSH'
+  # `[patch.<patch-type>]`, defaults to HTTPS URL from upstream caller repo
+  patch-type:
+    description: 'Patch with HTTPS, SSH, or crates.io'
     required: false
-    default: false
-    type: boolean
-  # Comma-separated list of crates to patch further down the dependency chain
-  more-paths:
-    description: 'Paths to further downstream'
-    required: false
+    default: 'https'
     type: string
 
 runs:
   using: "composite"
   steps: 
     # Assumes at least one dependency in the current workspace is used by the downstream crate
-    - name: Patch Cargo.toml
+    - name: Patch Cargo.toml files in the downstream repo with all uses of the upstream-repo
       shell: bash
-      working-directory: ${{ github.workspace }}/${{ inputs.downstream-path }}
+      working-directory: ${{ github.workspace }}/ci-workflows/crates/check-downstream-compiles
       run: |
-        if [[ "${{ inputs.patch-ssh }}" == "true" ]]; then
-          URL=ssh://git@github.com/${{ github.repository }}
-        else
-          URL=https://github.com/${{ github.repository }}
-        fi
-
-        # Get a list of all upstream dependencies used by the downstream crate workspace
-        # This is done by checking for each instance of `git = <upstream_url>` in any of the downstream `Cargo.toml` files
-        DEPENDENCIES=$(grep -rsh "git = \"$URL" --include="Cargo.toml" .)
-
-        # Extract the dependency names and check for package renames, removing duplicates
-        DEP_NAMES=$(echo "$DEPENDENCIES" | awk '/package =/{for (i=1; i<=NF; i++) if ($i == "package") {name=$(i+2); print substr(name, 2, length(name)-2);} found=1} !/package =/{print $1}' | sort -u)
-
-        shopt -s nullglob
-        # Collect the `(path, package)` pairs for most subcrates in the upstream directory, regardless of whether they are workspace members
-        # Patch paths are absolute so they can be used in any Cargo.toml
-        SUBCRATES=$(find ${{ github.workspace }}/${{ inputs.upstream-path }} \( -type d \( -name target -o -name examples -o -name tests -o -name cli \) -prune \) -o -name Cargo.toml -exec awk '/^\[package\]/{flag=1} flag && /name\s*=/ {gsub(/"/, "", $3); package=$3} /^\[[^p]/ && flag {exit} END{if(package != "") print FILENAME, package}' {} \; | sed 's|/Cargo.toml | |g')
-        shopt -u nullglob
-
-        # Store the subcrates in associative array for retrieval when patching `Cargo.toml`
-        declare -A subcrates
-        while IFS= read -r line; do
-            pair=($line)
-            subcrates[${pair[1]}]=${pair[0]}
-        done <<< "$SUBCRATES"
-
-        # Get list of Git patches for each dependency used downstream
-        for crate in $DEP_NAMES; do
-          crate_path="${subcrates[$crate]}"
-          echo "$crate = { path = \"$crate_path\" }" | tee -a patches.txt
-        done
-
-        ESCAPED_URL=$(printf '%s\n' "$URL" | sed 's/[\/&]/\\&/g')
-
-        # Write patches to all Cargo.toml files in the directory
-        for file in $(find . -name Cargo.toml -not -path "./target/*"); do
-          # Add the `[patch]` section if it doesn't exist already, as duplicates aren't allowed
-          if ! grep -q "\[patch.'$URL'\]" $file; then
-            printf "\n\n[patch.'$URL']\n" >> $file
-          # If `[patch]` does exist, remove any duplicate keys before inserting patches
-          else
-            for crate in $DEP_NAMES; do
-              sed -i "/\[patch.'$ESCAPED_URL'\]/,/^$/ { /^$crate.*$/d }" $file
-            done
-          fi
-
-          # Append all patches after the `[patch.'ssh']` line
-          sed -i "/\[patch.'$ESCAPED_URL'\]/r patches.txt" $file
-        done
-
-        # If more crates were specified, patch them too
-        if [[ ! -z "${{ inputs.more-paths }}" ]]; then
-          for path in "${{ inputs.more-paths }}"; do
-            for file in $(find $path -name Cargo.toml -not -path "./target/*"); do
-              # Add the `[patch]` section if it doesn't exist already, as duplicates aren't allowed
-              if ! grep -q "\[patch.'$URL'\]" $file; then
-                printf "\n\n[patch.'$URL']\n" >> $file
-              # If `[patch]` does exist, remove any duplicate keys before inserting patches
-              else
-                for crate in $DEP_NAMES; do
-                  sed -i "/\[patch.'$ESCAPED_URL'\]/,/^$/ { /^$crate.*$/d }" $file
-                done
-              fi
-
-              # Append all patches after the `[patch.'ssh']` line
-              sed -i "/\[patch.'$ESCAPED_URL'\]/r patches.txt" $file
-            done
-          done
-        fi
+        cargo run -- --upstream ${{ github.workspace }}/${{ inputs.upstream-path }} --downstream ${{ github.workspace }}/${{ inputs.downstream-path }} --repo ${{ github.repository }} --patch-type ${{ inputs.patch-type }}
     - name: Check downstream types don't break spectacularly
       shell: bash 
       working-directory: ${{ github.workspace }}/${{ inputs.downstream-path }}
       run: |
-        cargo check --workspace --tests --benches --examples
-    - name: Check more downstream types don't break spectacularly
-      if: ${{ inputs.more-paths != '' }}
-      shell: bash 
-      working-directory: ${{ github.workspace }}
-      run: |
-        for path in "${{ inputs.more-paths }}"; do
-          cd $path
-          cargo check --workspace --tests --benches --examples
-          cd ${{ github.workspace }}
-        done
+        cargo check --workspace --all-targets
