@@ -3,6 +3,7 @@ use std::fs;
 
 use camino::Utf8PathBuf;
 use clap::{Parser, ValueEnum};
+use log::debug;
 use toml_edit::{value, DocumentMut, Item, Table};
 use walkdir::WalkDir;
 
@@ -37,6 +38,7 @@ enum PatchType {
 }
 
 fn main() {
+    env_logger::init();
     let args = Args::parse();
 
     let mut upstream_packages: BTreeMap<String, Utf8PathBuf> = BTreeMap::new();
@@ -67,8 +69,6 @@ fn main() {
         }
     }
 
-    //println!("upstream packages: {:?}", upstream_packages);
-
     let mut downstream_packages: BTreeMap<String, Utf8PathBuf> = BTreeMap::new();
 
     // Get all the upstream crates that are used in the downstream repo
@@ -84,22 +84,23 @@ fn main() {
                     .parse::<DocumentMut>()
                     .expect("Parse err");
 
-                if let Some(Item::Table(deps)) = doc.get("dependencies") {
-                    for (dep_name, dep_value) in deps.iter() {
-                        if let Some(table) = dep_value.as_inline_table() {
-                            if table.get("git").is_some() {
-                                if let Some(dir) = upstream_packages.get(dep_name) {
-                                    downstream_packages.insert(dep_name.to_owned(), dir.clone());
-                                }
-                            }
-                        }
+                if let Some(Item::Table(workspace_table)) = doc.get("workspace") {
+                    if let Some(Item::Table(dep_table)) = workspace_table.get("dependencies") {
+                        get_downstream_deps(
+                            dep_table,
+                            &upstream_packages,
+                            &mut downstream_packages,
+                        );
                     }
+                }
+                if let Some(Item::Table(dep_table)) = doc.get("dependencies") {
+                    get_downstream_deps(dep_table, &upstream_packages, &mut downstream_packages);
                 }
             }
         }
     }
 
-    //println!("downstream packages: {:?}", downstream_packages);
+    debug!("downstream packages: {downstream_packages:?}");
 
     let patch_str = patch_string(&args.patch_type, &args.repo);
 
@@ -146,9 +147,25 @@ fn main() {
                     doc["patch"] = Item::Table(patch);
                 }
 
-                //println!("file: {:?}\n{doc}", path);
+                debug!("File: {path:?}\n{doc}");
 
                 fs::write(path, doc.to_string()).expect("Failed to write");
+            }
+        }
+    }
+}
+
+fn get_downstream_deps(
+    deps: &Table,
+    upstream_packages: &BTreeMap<String, Utf8PathBuf>,
+    downstream_packages: &mut BTreeMap<String, Utf8PathBuf>,
+) {
+    for (dep_name, dep_value) in deps.iter() {
+        if let Some(table) = dep_value.as_inline_table() {
+            if table.get("git").is_some() {
+                if let Some(dir) = upstream_packages.get(dep_name) {
+                    downstream_packages.insert(dep_name.to_owned(), dir.clone());
+                }
             }
         }
     }

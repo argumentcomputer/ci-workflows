@@ -30,6 +30,8 @@ runs:
       working-directory: ${{ github.workspace }}/ci-workflows/crates/check-downstream-compiles
       run: |
         cargo run -- --upstream ${{ github.workspace }}/${{ inputs.upstream-path }} --downstream ${{ github.workspace }}/${{ inputs.downstream-path }} --repo ${{ github.repository }} --patch-type ${{ inputs.patch-type }}
+      env:
+        RUST_LOG: "debug"
     - name: Check downstream types don't break spectacularly
       shell: bash 
       working-directory: ${{ github.workspace }}/${{ inputs.downstream-path }}
