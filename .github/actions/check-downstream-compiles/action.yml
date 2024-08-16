@@ -20,10 +20,23 @@ inputs:
     required: false
     default: 'https'
     type: string
+  features:
+    description: 'Features to check in addition to the default'
+    required: false
+    type: string
 
 runs:
   using: "composite"
   steps: 
+    - name: Set env
+      run: |
+        if [[ ! -z "${{ inputs.features }}" ]]; then
+          FEATURES="--features ${{ inputs.features }}"
+        else
+          FEATURES=""
+        fi
+        echo "FEATURES=$FEATURES" | tee -a $GITHUB_ENV
+      shell: bash
     # Assumes at least one dependency in the current workspace is used by the downstream crate
     - name: Patch Cargo.toml files in the downstream repo with all uses of the upstream-repo
       shell: bash
@@ -36,4 +49,4 @@ runs:
       shell: bash 
       working-directory: ${{ github.workspace }}/${{ inputs.downstream-path }}
       run: |
-        cargo check --workspace --all-targets
+        cargo check --workspace --all-targets ${{ env.FEATURES }}
