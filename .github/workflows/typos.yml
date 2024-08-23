@@ -48,11 +48,17 @@ jobs:
         run: |
           FILE_PATHS=:!*\_body.md,$(git status --porcelain | awk -F. '{OFS=""; print "**/*."$NF}' | sort -u | paste -sd,)
           echo "paths=$FILE_PATHS" | tee -a $GITHUB_OUTPUT
-      # Note: Doesn't work for `push` or `pull_request` triggers
+      - uses: tibdex/github-app-token@v2
+        if: steps.typo-check.outputs.typos == 'true'
+        id: generate-token
+        with:
+          app_id: ${{ secrets.TOKEN_APP_ID }}
+          private_key: ${{ secrets.TOKEN_APP_PRIVATE_KEY }}
       - name: Create pull request
         uses: peter-evans/create-pull-request@v6
         if: steps.typo-check.outputs.typos == 'true'
         with:
+          token: ${{ steps.generate-token.outputs.token }}
           commit-message: '[automated] Fix typos'
           title: '[automated] Fix typos'
           branch: 'patch/fix-typos'
