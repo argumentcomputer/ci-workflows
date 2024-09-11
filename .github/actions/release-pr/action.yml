@@ -1,13 +1,13 @@
 # Workflow to create a new release PR, with one of the following two scenarios:
 #
 # - Major or minor release, where `inputs.release-type` = `release`
-#   - Pushes a new `release/<prefix>-v<version>` branch based on latest `dev`
+#   - Pushes a new `release/<tag-prefix>-v<version>` branch based on latest `dev`
 #   - Creates a new `version-bump` branch from the release, then bumps the version with the `version` input
-#   - Opens a release PR from `version-bump` to `release/<prefix>-v<version>`
+#   - Opens a release PR from `version-bump` to `release/<tag-prefix>-v<version>`
 # - Patch release, where `inputs.release-type` = `patch`
-#   - Pushes a new `patch/<prefix>-v<version>` branch based on `release/<prefix>-v<version>`, then bumps the verision with the `version` input
-#   - Errors if the `release/<prefix>-v<version>` branch doesn't exist
-#   - Opens a release PR from `patch/<prefix>-v<version>` to `release/<prefix>-v<version>`
+#   - Pushes a new `patch/<tag-prefix>-v<version>` branch based on `release/<tag-prefix>-v<version>`, then bumps the verision with the `version` input
+#   - Errors if the `release/<tag-prefix>-v<version>` branch doesn't exist
+#   - Opens a release PR from `patch/<tag-prefix>-v<version>` to `release/<tag-prefix>-v<version>`
 #
 # When the PR is merged, the caller can then trigger a release from `ci-workflows/actions/tag-release`
 # The PR branch can then be safely deleted, while the release branch should have a branch protection rule for historical preservation
@@ -22,7 +22,7 @@ inputs:
   path:
     description: 'Relative path under the GitHub workspace'
     required: false
-  prefix:
+  tag-prefix:
     description: 'Optional tag prefix before version number'
     required: false
   more-crates:
@@ -96,13 +96,13 @@ runs:
         echo "CRATE_VERSION=${{ inputs.version }}" | tee -a $GITHUB_ENV
       shell: bash
 
-    # The `release/<prefix>-v<version>` branch always removes the patch number from `<version>` as we don't want to change
+    # The `release/<tag-prefix>-v<version>` branch always removes the patch number from `<version>` as we don't want to change
     # the release branch name for patch versions.
     # However, when we make a version bump, we include the full SemVer input in `Cargo.toml` and the release tag for clarity
     - name: Create or checkout base branch
       run: |
-        if [[ -n "${{ inputs.prefix }}" ]]; then
-          BASE_BRANCH="release/${{ inputs.prefix }}-v${{ env.BRANCH_VERSION }}"
+        if [[ -n "${{ inputs.tag-prefix }}" ]]; then
+          BASE_BRANCH="release/${{ inputs.tag-prefix }}-v${{ env.BRANCH_VERSION }}"
         else
           BASE_BRANCH="release/v${{ env.BRANCH_VERSION }}"
         fi
@@ -119,12 +119,12 @@ runs:
         GITHUB_TOKEN: ${{ inputs.token }}
       shell: bash
 
+    # Include the full patch version in the PR branch name if a patch, otherwise call it `version-bump` for a release
     - name: Create PR branch
       run: |
-        # Include the full patch version in the PR branch name if a patch, otherwise call it `version-bump` for a release
         if [[ "${{ inputs.release-type }}" == "patch" ]]; then
-          if [[ -n "${{ inputs.prefix }}" ]]; then
-            PR_BRANCH="${{ inputs.release-type }}/${{ inputs.prefix }}-v${{ env.CRATE_VERSION }}"
+          if [[ -n "${{ inputs.tag-prefix }}" ]]; then
+            PR_BRANCH="${{ inputs.release-type }}/${{ inputs.tag-prefix }}-v${{ env.CRATE_VERSION }}"
           else
             PR_BRANCH="${{ inputs.release-type }}/v${{ env.CRATE_VERSION }}"
           fi
@@ -187,23 +187,25 @@ runs:
     - name: Create pull request description
       run: |
         REPO=$( echo "${{ github.repository }}" | awk -F'/' '{ print $2 }')
-        if [[ -n "${{ inputs.prefix }}" ]]; then
-          TAG="${{ inputs.prefix }}-v${{ env.CRATE_VERSION }}"
-          NAME="${{ inputs.prefix }}/$REPO"
+        if [[ -n "${{ inputs.tag-prefix }}" ]]; then
+          TAG="${{ inputs.tag-prefix }}-v${{ env.CRATE_VERSION }}"
         else
           TAG="v${{ env.CRATE_VERSION }}"
+        fi
+        if [[ -n "${{ inputs.path }}" ]]; then
+          NAME="$REPO/${{ inputs.path }}"
+        else
           NAME="$REPO"
         fi
 
-        cat << 'EOF' > body.md
-        This is an automated release PR for $NAME version `${{ env.CRATE_VERSION }}`.
+        printf '%s\n' "This is an automated release PR for \`$NAME\` version \`${{ env.CRATE_VERSION }}\`.
 
-        On merge, this will trigger the [release publish workflow](${{ github.server_url }}/${{ github.repository }}/actions/workflows/tag-release.yml), which will upload a new GitHub release with tag `$TAG`.
+        On merge, this will trigger the [release publish workflow](${{ github.server_url }}/${{ github.repository }}/actions/workflows/tag-release.yml), which will upload a new GitHub release with tag \`$TAG\`.
 
-        [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-        EOF
+        [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" > body.md
       shell: bash
-    
+
+    # TODO: Fix `Warning: Skipping unexpected diff entry:` from the `git show` command internal to the below action
     - name: Create release PR
       uses: peter-evans/create-pull-request@v7
       with:
