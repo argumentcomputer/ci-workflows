@@ -1,10 +1,14 @@
 # Workflow to create a new release PR, with one of the following two scenarios:
 #
-# - Major or minor release, where `inputs.release-type` = `release`
-#   - Pushes a new `release/<tag-prefix>-v<version>` branch based on latest `dev`
-#   - Creates a new `version-bump` branch from the release, then bumps the version with the `version` input
-#   - Opens a release PR from `version-bump` to `release/<tag-prefix>-v<version>`
-# - Patch release, where `inputs.release-type` = `patch`
+# - Major release
+#   - Pushes a new `release/<tag-prefix>-v<version>` branch based on latest default branch
+#   - Creates a new `release-pr` branch from the release, then bumps the version with the `version` input
+#   - Opens a release PR from `release-pr` to `release/<tag-prefix>-v<version>`
+# - Minor release
+#   - Pushes a new `release/<tag-prefix>-v<version>` branch based on the latest compatible major release
+#   - Creates a new `release-pr` branch from the release, then bumps the version with the `version` input
+#   - Opens a release PR from `release-pr` to `release/<tag-prefix>-v<version>`
+# - Patch release
 #   - Pushes a new `patch/<tag-prefix>-v<version>` branch based on `release/<tag-prefix>-v<version>`, then bumps the verision with the `version` input
 #   - Errors if the `release/<tag-prefix>-v<version>` branch doesn't exist
 #   - Opens a release PR from `patch/<tag-prefix>-v<version>` to `release/<tag-prefix>-v<version>`
@@ -12,6 +16,7 @@
 # When the PR is merged, the caller can then trigger a release from `ci-workflows/actions/tag-release`
 # The PR branch can then be safely deleted, while the release branch should have a branch protection rule for historical preservation
 #
+# Assumes the caller workflow has already checkout out the default branch of the repo
 # Example caller workflow: (TODO - Sphinx)
 name: Create release PR
 
@@ -28,17 +33,18 @@ inputs:
   more-crates:
     description: 'Additional non-workspace crate paths to release'
     required: false
-  # Caller workflows should specify a `choice` input or otherwise ensure the only options are `release` or `patch`
+  # Caller workflows should specify a `choice` input or otherwise ensure the only options are `major`, `minor`, `patch`
   release-type:
-    description: 'Semver release type: `release` = major/minor version, `patch` = patch version'
+    description: 'Semver release type: `major`, `minor`, or `patch`'
     required: true
-    default: 'release'
-  # The release branch will be persistent across patches, so any input patch version must correspond to an existing branch
+    default: 'major'
+  # The release branch will be persistent across patches, so any input `patch` version must correspond to an existing branch
   version:
-    description: 'Semver version, e.g. `1.0.0` for `release` and `1.0.1` for `patch`'
+    description: 'Semver version corresponding to `release-type`, e.g. `1.0.0` for `major`'
     required: true
   token:
     description: 'Git token'
+    required: true
 
 runs:
   using: "composite"
@@ -48,9 +54,9 @@ runs:
     - run: cargo install tq-rs
       shell: bash
 
-    # Checks that the input version is valid SemVer. It must include a patch version, e.g. `1.0.0`, `2.1.1`, or `3.0.0-alpha.rc`
-    # If the `release-type` input is `release`, then the input version must have a patch version of 0
-    # Patches are reserved for the `patch` `release-type`, as they update the existing release branch rather than creating a new one
+    # Checks that the input version is valid SemVer, e.g. `1.0.0`, `2.1.1`, or `3.0.0-alpha.rc`
+    # Discards patch version for a major or minor release. Patches are reserved for the `patch` `release-type`,
+    # as they update the existing release branch rather than creating a new one
     - name: Validate version
       run: |
         echo "Validating input version ${{ inputs.version }}..."
@@ -69,9 +75,9 @@ runs:
           EXTRA="${BASH_REMATCH[4]}"  # Pre-release or build metadata (if present)
 
           # Error if the patch version is greater than 0 for a release
-          if  [[ "${{ inputs.release-type }}" == "release" ]]; then
+          if  [[ "${{ inputs.release-type }}" != "patch" ]]; then
             if [[ "$PATCH" -gt 0 ]]; then
-              echo "Error: Patch version must be 0 for a release, but found $PATCH."
+              echo "Error: Patch version must be 0 for a major/minor release, but found $PATCH."
               exit 1
             fi
           else
@@ -87,6 +93,11 @@ runs:
           BRANCH_VERSION="${MAJOR}.${MINOR}${EXTRA}"
           echo "Branch version: $BRANCH_VERSION"
 
+          if [[ "${{ inputs.release-type }}" == "major" ]]; then
+            echo "PRIOR_VERSION=$(( MAJOR - 1 ))" | tee -a $GITHUB_ENV
+          elif [[ "${{ inputs.release-type }}" == "minor" ]]; then
+            echo "PRIOR_VERSION=${MAJOR}" | tee -a $GITHUB_ENV
+          fi
         else
           echo "Version ${{ inputs.version }} is not valid SemVer. Aborting..."
           exit 1
@@ -96,18 +107,33 @@ runs:
         echo "CRATE_VERSION=${{ inputs.version }}" | tee -a $GITHUB_ENV
       shell: bash
 
+    # Always checks out an existing release branch (if existent) as the base for the release PR. Maintainers are expected to
+    # cherry-pick the desired changes from the default branch and push to the temporary `release-pr` branch before merging the PR.
+    #
     # The `release/<tag-prefix>-v<version>` branch always removes the patch number from `<version>` as we don't want to change
     # the release branch name for patch versions.
     # However, when we make a version bump, we include the full SemVer input in `Cargo.toml` and the release tag for clarity
     - name: Create or checkout base branch
       run: |
         if [[ -n "${{ inputs.tag-prefix }}" ]]; then
-          BASE_BRANCH="release/${{ inputs.tag-prefix }}-v${{ env.BRANCH_VERSION }}"
-        else
-          BASE_BRANCH="release/v${{ env.BRANCH_VERSION }}"
+          TAG_PREFIX="${{ inputs.tag-prefix }}-"
         fi
 
-        if [[ "${{ inputs.release-type }}" == "release" ]]; then
+        BASE_BRANCH="release/${TAG_PREFIX}v${{ env.BRANCH_VERSION }}"
+        echo $BASE_BRANCH
+
+        # If major release, get latest minor release from prior major version
+        # If minor release, get latest minor release from given major version
+        if [[ "${{ inputs.release-type }}" == "major" || "${{ inputs.release-type }}" == "minor" ]]; then
+          set +o pipefail
+          PRIOR_RELEASE=$(git branch -r | grep -E "origin/release/${TAG_PREFIX}v${{ env.PRIOR_VERSION }}\.[0-9]+" | sed 's/origin\///' | sort -V | tail -n 1)
+          set -o pipefail
+          echo "Prior release: $PRIOR_RELEASE"
+          # If a prior release is found, check it out as the source of the new release branch (which is the PR base)
+          # Otherwise, use the default branch (e.g. if this is the first release).
+          if [[ -n "$PRIOR_RELEASE" ]]; then
+            git checkout $PRIOR_RELEASE
+          fi
           git checkout -b $BASE_BRANCH
           git push origin $BASE_BRANCH
         else
@@ -119,7 +145,7 @@ runs:
         GITHUB_TOKEN: ${{ inputs.token }}
       shell: bash
 
-    # Include the full patch version in the PR branch name if a patch, otherwise call it `version-bump` for a release
+    # Include the full patch version in the PR branch name if a patch, otherwise call it `release-pr` for a major or minor release
     - name: Create PR branch
       run: |
         if [[ "${{ inputs.release-type }}" == "patch" ]]; then
@@ -129,7 +155,7 @@ runs:
             PR_BRANCH="${{ inputs.release-type }}/v${{ env.CRATE_VERSION }}"
           fi
         else
-          PR_BRANCH="version-bump"
+          PR_BRANCH="release-pr"
         fi
 
         echo "PR_BRANCH=$PR_BRANCH" | tee -a $GITHUB_ENV

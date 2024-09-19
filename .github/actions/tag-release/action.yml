@@ -27,23 +27,29 @@ runs:
       run: |
         RELEASE_BRANCH=${{ github.event.pull_request.base.ref }}
 
+        if [[ -n "${{ inputs.tag-prefix }}" ]]; then
+          TAG_PREFIX="${{ inputs.tag-prefix }}-"
+        fi
+
         # On a major/minor release, insert a `.0` for the patch version)
-        if [[ "${{ github.event.pull_request.head.ref }}" == "version-bump" ]]; then
+        if [[ "${{ github.event.pull_request.head.ref }}" == "release-pr" ]]; then
           # Extract the version from the branch
-          VERSION=$(echo "$RELEASE_BRANCH" | awk -F'-' '{print $(NF-1)"-"$NF}')
+          VERSION=$(echo "$RELEASE_BRANCH" | awk -F'-' '{print $(NF)}')
 
           D='0|[1-9][0-9]*'
           PW='[0-9]*[a-zA-Z-][0-9a-zA-Z-]*'
           MW='[0-9a-zA-Z-]+'
-          SEMVER_REGEX="^($D)\.($D)(-(($D|$PW)(\.($D|$PW))*))?(\+($MW(\.$MW)*))?$"
+          SEMVER_REGEX="^v?($D)\.($D)(-(($D|$PW)(\.($D|$PW))*))?(\+($MW(\.$MW)*))?$"
 
           # Insert the `.0` patch version
-          if [[ "${TAG_VERSION:1}" =~ $SEMVER_REGEX ]]; then
+          if [[ "$VERSION" =~ $SEMVER_REGEX ]]; then
             # Extract major, minor versions and anything after the patch (e.g., pre-release or build metadata)
             MAJOR="${BASH_REMATCH[1]}"
             MINOR="${BASH_REMATCH[2]}"
             EXTRA="${BASH_REMATCH[3]}"  # Pre-release or build metadata (if present)
-            TAG_VERSION="v$MAJOR.$MINOR.0$EXTRA"
+            TAG_VERSION="${TAG_PREFIX}v$MAJOR.$MINOR.0$EXTRA"
+
+            echo "Tag version: $TAG_VERSION"
           else
             echo "Failed to parse tag version from release branch name"
             exit 1
@@ -61,7 +67,9 @@ runs:
     - name: Get latest release reference
       id: get-latest-release
       run: |
+        set +o pipefail
         LATEST_RELEASE=$(gh release list --repo ${{ github.repository }} --limit 100 | grep -Ei "${{ inputs.tag-prefix }}" | head -n 1 | awk '{ print $1 }')
+        set -o pipefail
 
         if [ -z "$LATEST_RELEASE" ]; then
           LATEST_RELEASE=$(git rev-list --max-parents=0 HEAD)
@@ -93,8 +101,7 @@ runs:
         fromTag: ${{ steps.get-latest-release.outputs.latest_release }}
         toTag: ${{ steps.get-version.outputs.tag-version }}
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      shell: bash
+        GITHUB_TOKEN: ${{ github.token }}
 
     - name: Create Release
       uses: ncipollo/release-action@v1
@@ -103,4 +110,3 @@ runs:
         tag: ${{ steps.get-version.outputs.tag-version }}
         commit: ${{ env.RELEASE_BRANCH }}
         allowUpdates: true
-      shell: bash
