@@ -17,7 +17,6 @@
 # The PR branch can then be safely deleted, while the release branch should have a branch protection rule for historical preservation
 #
 # Example caller workflow: TODO: Link to Sphinx, ZKLC
-# TODO: Add unique ID to PR branch name, e.g. release-pr-<version>-<tag-prefix> in order to allow multiple release PRs at once
 name: Create release PR
 
 description: Bump crate versions and open release PR

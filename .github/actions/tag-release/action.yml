@@ -1,11 +1,19 @@
 # Workflow to create a new tag release when a release branch is merged
 #
-# Only supports running via the `pull_request` trigger in the caller workflow
+# Recommended for caller to support triggering on both `pull_request` merge and `workflow_dispatch` for flexibility
+#
+# TODO: Add example workflows
 name: Tag release
 
 description: Bump crate versions and open release PR
 
 inputs:
+  release-branch:
+    description: 'Branch to release'
+    required: true
+  version:
+    description: 'SemVer release version'
+    required: true
   tag-prefix:
     description: 'Tag prefix used to get most recent release'
     required: false
@@ -25,45 +33,17 @@ runs:
     - name: Get version
       id: get-version
       run: |
-        RELEASE_BRANCH=${{ github.event.pull_request.base.ref }}
-
         if [[ -n "${{ inputs.tag-prefix }}" ]]; then
           TAG_PREFIX="${{ inputs.tag-prefix }}-"
         else
           TAG_PREFIX=""
         fi
 
-        # On a major/minor release, insert a `.0` for the patch version)
-        if [[ "${{ github.event.pull_request.head.ref }}" == release-pr-* ]]; then
-          # Extract the version from the branch
-          VERSION=$(echo "$RELEASE_BRANCH" | awk -F'-' '{print $(NF)}')
+        TAG_VERSION=${TAG_PREFIX}v${{ inputs.version }}
 
-          D='0|[1-9][0-9]*'
-          PW='[0-9]*[a-zA-Z-][0-9a-zA-Z-]*'
-          MW='[0-9a-zA-Z-]+'
-          SEMVER_REGEX="^v?($D)\.($D)(-(($D|$PW)(\.($D|$PW))*))?(\+($MW(\.$MW)*))?$"
-
-          # Insert the `.0` patch version
-          if [[ "$VERSION" =~ $SEMVER_REGEX ]]; then
-            # Extract major, minor versions and anything after the patch (e.g., pre-release or build metadata)
-            MAJOR="${BASH_REMATCH[1]}"
-            MINOR="${BASH_REMATCH[2]}"
-            EXTRA="${BASH_REMATCH[3]}"  # Pre-release or build metadata (if present)
-            TAG_VERSION="${TAG_PREFIX}v$MAJOR.$MINOR.0$EXTRA"
-
-            echo "Tag version: $TAG_VERSION"
-          else
-            echo "Failed to parse tag version from release branch name"
-            exit 1
-          fi
-        else
-          TAG_VERSION=$(echo "${{ github.event.pull_request.head.ref }}" | cut -d'/' -f 2)
-        fi
-
-        git tag -a $TAG_VERSION -m "$TAG_VERSION" origin/$RELEASE_BRANCH
+        git tag -a $TAG_VERSION -m "$TAG_VERSION" origin/${{ inputs.release-branch }}
         git push origin $TAG_VERSION --follow-tags
         echo "tag-version=$TAG_VERSION" | tee -a "$GITHUB_OUTPUT"
-        echo "RELEASE_BRANCH=$RELEASE_BRANCH" | tee -a "$GITHUB_ENV"
       shell: bash
 
     - name: Get latest release reference
@@ -75,7 +55,7 @@ runs:
 
         if [ -z "$LATEST_RELEASE" ]; then
           LATEST_RELEASE=$(git rev-list --max-parents=0 HEAD)
-          echo "The first commit on branch ${{ env.RELEASE_BRANCH }} is $LATEST_RELEASE"
+          echo "The first commit on branch ${{ inputs.release-branch }} is $LATEST_RELEASE"
         else
           echo "Found release: $LATEST_RELEASE"
         fi
@@ -102,5 +82,5 @@ runs:
       with:
         body: ${{ steps.github_release.outputs.changelog }}
         tag: ${{ steps.get-version.outputs.tag-version }}
-        commit: ${{ env.RELEASE_BRANCH }}
+        commit: ${{ inputs.release-branch }}
         allowUpdates: true
