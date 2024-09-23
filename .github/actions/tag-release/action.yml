@@ -29,10 +29,12 @@ runs:
 
         if [[ -n "${{ inputs.tag-prefix }}" ]]; then
           TAG_PREFIX="${{ inputs.tag-prefix }}-"
+        else
+          TAG_PREFIX=""
         fi
 
         # On a major/minor release, insert a `.0` for the patch version)
-        if [[ "${{ github.event.pull_request.head.ref }}" == "release-pr" ]]; then
+        if [[ "${{ github.event.pull_request.head.ref }}" == release-pr-* ]]; then
           # Extract the version from the branch
           VERSION=$(echo "$RELEASE_BRANCH" | awk -F'-' '{print $(NF)}')
 

@@ -2,12 +2,12 @@
 #
 # - Major release
 #   - Pushes a new `release/<tag-prefix>-v<version>` branch based on latest `major.minor` version, e.g. `release/aptos-v1.0`
-#   - Creates a new `release-pr` branch from the release, then bumps the version with the `version` input
-#   - Opens a release PR from `release-pr` to `release/<tag-prefix>-v<version>`
+#   - Creates a new `release-pr-<tag-prefix>-v<version>` branch from the release, then bumps the version with the `version` input
+#   - Opens a release PR from `release-pr-<tag-prefix>-v<version>` to `release/<tag-prefix>-v<version>`
 # - Minor release
 #   - Pushes a new `release/<tag-prefix>-v<version>` branch based on the latest compatible major release
-#   - Creates a new `release-pr` branch from the release, then bumps the version with the `version` input
-#   - Opens a release PR from `release-pr` to `release/<tag-prefix>-v<version>`
+#   - Creates a new `release-pr-<tag-prefix>-v<version` branch from the release, then bumps the version with the `version` input
+#   - Opens a release PR from `release-pr-<tag-prefix>-v<version` to `release/<tag-prefix>-v<version>`
 # - Patch release
 #   - Pushes a new `patch/<tag-prefix>-v<version>` branch based on `release/<tag-prefix>-v<version>`, then bumps the verision with the `version` input
 #   - Errors if the `release/<tag-prefix>-v<version>` branch doesn't exist
@@ -111,7 +111,7 @@ runs:
       shell: bash
 
     # Always checks out an existing release branch (if existent) as the base for the release PR. Maintainers are expected to
-    # cherry-pick the desired changes from the default branch and push to the temporary `release-pr` branch before merging the PR.
+    # cherry-pick the desired changes from the default branch and push to the temporary `release-pr-<tag-prefix>-v<version` branch before merging the PR.
     #
     # The `release/<tag-prefix>-v<version>` branch always removes the patch number from `<version>` as we don't want to change
     # the release branch name for patch versions.
@@ -120,6 +120,8 @@ runs:
       run: |
         if [[ -n "${{ inputs.tag-prefix }}" ]]; then
           TAG_PREFIX="${{ inputs.tag-prefix }}-"
+        else
+          TAG_PREFIX=""
         fi
 
         BASE_BRANCH="release/${TAG_PREFIX}v${{ env.BRANCH_VERSION }}"
@@ -143,22 +145,19 @@ runs:
           git checkout $BASE_BRANCH
         fi
 
+        echo "TAG_PREFIX=$TAG_PREFIX" | tee -a $GITHUB_ENV
         echo "BASE_BRANCH=$BASE_BRANCH" | tee -a $GITHUB_ENV
       env:
         GITHUB_TOKEN: ${{ inputs.token }}
       shell: bash
 
-    # Include the full patch version in the PR branch name if a patch, otherwise call it `release-pr` for a major or minor release
+    # Include the full patch version in the PR branch name if a patch, otherwise call it `release-pr-<tag-prefix>-v<version` for a major or minor release
     - name: Create PR branch
       run: |
         if [[ "${{ inputs.release-type }}" == "patch" ]]; then
-          if [[ -n "${{ inputs.tag-prefix }}" ]]; then
-            PR_BRANCH="${{ inputs.release-type }}/${{ inputs.tag-prefix }}-v${{ env.CRATE_VERSION }}"
-          else
-            PR_BRANCH="${{ inputs.release-type }}/v${{ env.CRATE_VERSION }}"
-          fi
+          PR_BRANCH="${{ inputs.release-type }}/${{ env.TAG_PREFIX }}v${{ env.CRATE_VERSION }}"
         else
-          PR_BRANCH="release-pr"
+          PR_BRANCH="release-pr-${{ env.TAG_PREFIX }}v${{ env.BRANCH_VERSION }}"
         fi
 
         echo "PR_BRANCH=$PR_BRANCH" | tee -a $GITHUB_ENV
