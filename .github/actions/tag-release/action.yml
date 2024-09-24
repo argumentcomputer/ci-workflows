@@ -12,7 +12,7 @@ inputs:
     description: 'Branch to release'
     required: true
   version:
-    description: 'SemVer release version'
+    description: 'SemVer release version, e.g. `1.0.0`'
     required: true
   tag-prefix:
     description: 'Tag prefix used to get most recent release'
@@ -30,8 +30,8 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Get version
-      id: get-version
+    - name: Get release tag
+      id: get-tag
       run: |
         if [[ -n "${{ inputs.tag-prefix }}" ]]; then
           TAG_PREFIX="${{ inputs.tag-prefix }}-"
@@ -39,11 +39,11 @@ runs:
           TAG_PREFIX=""
         fi
 
-        TAG_VERSION=${TAG_PREFIX}v${{ inputs.version }}
+        RELEASE_TAG=${TAG_PREFIX}v${{ inputs.version }}
 
-        git tag -a $TAG_VERSION -m "$TAG_VERSION" origin/${{ inputs.release-branch }}
-        git push origin $TAG_VERSION --follow-tags
-        echo "tag-version=$TAG_VERSION" | tee -a "$GITHUB_OUTPUT"
+        git tag -a $RELEASE_TAG -m "$RELEASE_TAG" origin/${{ inputs.release-branch }}
+        git push origin $RELEASE_TAG --follow-tags
+        echo "release-tag=$RELEASE_TAG" | tee -a "$GITHUB_OUTPUT"
       shell: bash
 
     - name: Get latest release reference
@@ -73,7 +73,7 @@ runs:
         configuration: ${{ inputs.changelog-config-file }}
         path: "./${{ inputs.changelog-path }}"
         fromTag: ${{ steps.get-latest-release.outputs.latest_release }}
-        toTag: ${{ steps.get-version.outputs.tag-version }}
+        toTag: ${{ steps.get-tag.outputs.release-tag }}
       env:
         GITHUB_TOKEN: ${{ github.token }}
 
@@ -81,6 +81,6 @@ runs:
       uses: ncipollo/release-action@v1
       with:
         body: ${{ steps.github_release.outputs.changelog }}
-        tag: ${{ steps.get-version.outputs.tag-version }}
+        tag: ${{ steps.get-tag.outputs.release-tag }}
         commit: ${{ inputs.release-branch }}
         allowUpdates: true

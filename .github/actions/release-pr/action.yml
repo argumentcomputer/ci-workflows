@@ -161,9 +161,9 @@ runs:
 
         echo "PR_BRANCH=$PR_BRANCH" | tee -a $GITHUB_ENV
         if [[ -n "${{ inputs.path }}" ]]; then
-          echo "PR_TITLE=chore(${{ inputs.path }}): Release ${{ env.CRATE_VERSION }}" | tee -a $GITHUB_ENV
+          echo "PR_TITLE=chore(${{ inputs.path }}): Release \`${{ env.TAG_PREFIX }}v${{ env.CRATE_VERSION }}\`" | tee -a $GITHUB_ENV
         else
-          echo "PR_TITLE=chore: Release ${{ env.CRATE_VERSION }}" | tee -a $GITHUB_ENV
+          echo "PR_TITLE=chore: Release \`${{ env.TAG_PREFIX }}v${{ env.CRATE_VERSION }}\`" | tee -a $GITHUB_ENV
         fi
       env:
         GITHUB_TOKEN: ${{ inputs.token }}
