@@ -1,0 +1,86 @@
+# Workflow to create a new tag release when a release branch is merged
+#
+# Recommended for caller to support triggering on both `pull_request` merge and `workflow_dispatch` for flexibility
+#
+# TODO: Add example workflows
+name: Tag release
+
+description: Bump crate versions and open release PR
+
+inputs:
+  release-branch:
+    description: 'Branch to release'
+    required: true
+  version:
+    description: 'SemVer release version, e.g. `1.0.0`'
+    required: true
+  tag-prefix:
+    description: 'Tag prefix used to get most recent release'
+    required: false
+    default: ""
+  changelog-path:
+    description: 'Relative path to look for changelog'
+    required: false
+    default: "."
+  changelog-config-file:
+    description: 'Relative path to the config file for `mikepenz/release-changelog-builder-action`'
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Get release tag
+      id: get-tag
+      run: |
+        if [[ -n "${{ inputs.tag-prefix }}" ]]; then
+          TAG_PREFIX="${{ inputs.tag-prefix }}-"
+        else
+          TAG_PREFIX=""
+        fi
+
+        RELEASE_TAG=${TAG_PREFIX}v${{ inputs.version }}
+
+        git tag -a $RELEASE_TAG -m "$RELEASE_TAG" origin/${{ inputs.release-branch }}
+        git push origin $RELEASE_TAG --follow-tags
+        echo "release-tag=$RELEASE_TAG" | tee -a "$GITHUB_OUTPUT"
+      shell: bash
+
+    - name: Get latest release reference
+      id: get-latest-release
+      run: |
+        set +o pipefail
+        LATEST_RELEASE=$(gh release list --repo ${{ github.repository }} --limit 100 | grep -Ei "${{ inputs.tag-prefix }}" | head -n 1 | awk '{ print $1 }')
+        set -o pipefail
+
+        if [ -z "$LATEST_RELEASE" ]; then
+          LATEST_RELEASE=$(git rev-list --max-parents=0 HEAD)
+          echo "The first commit on branch ${{ inputs.release-branch }} is $LATEST_RELEASE"
+        else
+          echo "Found release: $LATEST_RELEASE"
+        fi
+
+        echo "latest_release=$LATEST_RELEASE" | tee -a "$GITHUB_OUTPUT"
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: bash
+
+    # TODO: Add an automatic labeler for PRs based on title/commit prefix
+    - name: Build Changelog
+      id: github_release
+      uses: mikepenz/release-changelog-builder-action@v5
+      with:
+        configuration: ${{ inputs.changelog-config-file }}
+        path: "./${{ inputs.changelog-path }}"
+        fromTag: ${{ steps.get-latest-release.outputs.latest_release }}
+        toTag: ${{ steps.get-tag.outputs.release-tag }}
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+
+    - name: Create Release
+      uses: ncipollo/release-action@v1
+      with:
+        body: ${{ steps.github_release.outputs.changelog }}
+        tag: ${{ steps.get-tag.outputs.release-tag }}
+        commit: ${{ inputs.release-branch }}
+        allowUpdates: true

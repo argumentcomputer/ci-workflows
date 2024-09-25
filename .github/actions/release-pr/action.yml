@@ -1,0 +1,247 @@
+# Workflow to create a new release PR, with one of the following two scenarios:
+#
+# - Major release
+#   - Pushes a new `release/<tag-prefix>-v<version>` branch based on latest `major.minor` version, e.g. `release/aptos-v1.0`
+#   - Creates a new `release-pr-<tag-prefix>-v<version>` branch from the release, then bumps the version with the `version` input
+#   - Opens a release PR from `release-pr-<tag-prefix>-v<version>` to `release/<tag-prefix>-v<version>`
+# - Minor release
+#   - Pushes a new `release/<tag-prefix>-v<version>` branch based on the latest compatible major release
+#   - Creates a new `release-pr-<tag-prefix>-v<version` branch from the release, then bumps the version with the `version` input
+#   - Opens a release PR from `release-pr-<tag-prefix>-v<version` to `release/<tag-prefix>-v<version>`
+# - Patch release
+#   - Pushes a new `patch/<tag-prefix>-v<version>` branch based on `release/<tag-prefix>-v<version>`, then bumps the verision with the `version` input
+#   - Errors if the `release/<tag-prefix>-v<version>` branch doesn't exist
+#   - Opens a release PR from `patch/<tag-prefix>-v<version>` to `release/<tag-prefix>-v<version>`
+#
+# When the PR is merged, the caller can then trigger a release from `ci-workflows/actions/tag-release`
+# The PR branch can then be safely deleted, while the release branch should have a branch protection rule for historical preservation
+#
+# Example caller workflow: TODO: Link to Sphinx, ZKLC
+name: Create release PR
+
+description: Bump crate versions and open release PR
+
+inputs:
+  # Optional working directory relative to `${{ github.workspace }}`, e.g. "aptos/" in "zk-light-clients/"
+  path:
+    description: 'Relative path under the GitHub workspace'
+    required: false
+  tag-prefix:
+    description: 'Optional tag prefix before version number'
+    required: false
+  more-crates:
+    description: 'Additional non-workspace crate paths to release'
+    required: false
+  # Caller workflows should specify a `choice` input or otherwise ensure the only options are `major`, `minor`, `patch`
+  release-type:
+    description: 'Semver release type: `major`, `minor`, or `patch`'
+    required: true
+    default: 'major'
+  # The release branch will be persistent across patches, so any input `patch` version must correspond to an existing branch
+  version:
+    description: 'Semver version corresponding to `release-type`, e.g. `1.0.0` for `major`'
+    required: true
+  token:
+    description: 'Git token'
+    required: true
+  reviewers:
+    description: 'Requested PR reviewers'
+    required: false
+
+runs:
+  using: "composite"
+  steps: 
+    - uses: dtolnay/rust-toolchain@stable
+
+    - run: cargo install tq-rs
+      shell: bash
+
+    # Checks that the input version is valid SemVer, e.g. `1.0.0`, `2.1.1`, or `3.0.0-alpha.rc`
+    # Discards patch version for a major or minor release. Patches are reserved for the `patch` `release-type`,
+    # as they update the existing release branch rather than creating a new one
+    - name: Validate version
+      run: |
+        echo "Validating input version ${{ inputs.version }}..."
+
+        # Regex from https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string
+        D='0|[1-9][0-9]*'
+        PW='[0-9]*[a-zA-Z-][0-9a-zA-Z-]*'
+        MW='[0-9a-zA-Z-]+'
+        SEMVER_REGEX="^($D)\.($D)\.($D)(-(($D|$PW)(\.($D|$PW))*))?(\+($MW(\.$MW)*))?$"
+
+        if [[ "${{ inputs.version }}" =~ $SEMVER_REGEX ]]; then
+          # Extract major, minor, patch versions and anything after the patch (e.g., pre-release or build metadata)
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
+          EXTRA="${BASH_REMATCH[4]}"  # Pre-release or build metadata (if present)
+
+          # Error if the patch version is greater than 0 for a release
+          if  [[ "${{ inputs.release-type }}" != "patch" ]]; then
+            if [[ "$PATCH" -gt 0 ]]; then
+              echo "Error: Patch version must be 0 for a major/minor release, but found $PATCH."
+              exit 1
+            fi
+          else
+            if [[ ! "$PATCH" -gt 0 ]]; then
+              echo "Error: Patch version must be >0 for a patch, but found $PATCH."
+              exit 1
+            fi
+          fi
+
+          echo "Version ${{ inputs.version }} is valid."
+
+          # Construct BRANCH_VERSION as MAJOR.MINOR + EXTRA (retain pre-release and build metadata)
+          BRANCH_VERSION="${MAJOR}.${MINOR}${EXTRA}"
+          echo "Branch version: $BRANCH_VERSION"
+
+          if [[ "${{ inputs.release-type }}" == "major" ]]; then
+            echo "PRIOR_VERSION=$(( MAJOR - 1 ))" | tee -a $GITHUB_ENV
+          elif [[ "${{ inputs.release-type }}" == "minor" ]]; then
+            echo "PRIOR_VERSION=${MAJOR}" | tee -a $GITHUB_ENV
+          fi
+        else
+          echo "Version ${{ inputs.version }} is not valid SemVer. Aborting..."
+          exit 1
+        fi
+
+        echo "BRANCH_VERSION=$BRANCH_VERSION" | tee -a $GITHUB_ENV
+        echo "CRATE_VERSION=${{ inputs.version }}" | tee -a $GITHUB_ENV
+      shell: bash
+
+    # Always checks out an existing release branch (if existent) as the base for the release PR. Maintainers are expected to
+    # cherry-pick the desired changes from the default branch and push to the temporary `release-pr-<tag-prefix>-v<version` branch before merging the PR.
+    #
+    # The `release/<tag-prefix>-v<version>` branch always removes the patch number from `<version>` as we don't want to change
+    # the release branch name for patch versions.
+    # However, when we make a version bump, we include the full SemVer input in `Cargo.toml` and the release tag for clarity
+    - name: Create or checkout base branch
+      run: |
+        if [[ -n "${{ inputs.tag-prefix }}" ]]; then
+          TAG_PREFIX="${{ inputs.tag-prefix }}-"
+        else
+          TAG_PREFIX=""
+        fi
+
+        BASE_BRANCH="release/${TAG_PREFIX}v${{ env.BRANCH_VERSION }}"
+        echo $BASE_BRANCH
+
+        # If major release, get latest minor release from prior major version
+        # If minor release, get latest minor release from given major version
+        if [[ "${{ inputs.release-type }}" == "major" || "${{ inputs.release-type }}" == "minor" ]]; then
+          set +o pipefail
+          PRIOR_RELEASE=$(git branch -r | grep -E "origin/release/${TAG_PREFIX}v${{ env.PRIOR_VERSION }}\.[0-9]+" | sed 's/origin\///' | sort -V | tail -n 1)
+          set -o pipefail
+          echo "Prior release: $PRIOR_RELEASE"
+          # If a prior release is found, check it out as the source of the new release branch (which is the PR base)
+          # Otherwise, use the default branch (e.g. if this is the first release).
+          if [[ -n "$PRIOR_RELEASE" ]]; then
+            git checkout $PRIOR_RELEASE
+          fi
+          git checkout -b $BASE_BRANCH
+          git push origin $BASE_BRANCH
+        else
+          git checkout $BASE_BRANCH
+        fi
+
+        echo "TAG_PREFIX=$TAG_PREFIX" | tee -a $GITHUB_ENV
+        echo "BASE_BRANCH=$BASE_BRANCH" | tee -a $GITHUB_ENV
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+      shell: bash
+
+    # Include the full patch version in the PR branch name if a patch, otherwise call it `release-pr-<tag-prefix>-v<version` for a major or minor release
+    - name: Create PR branch
+      run: |
+        if [[ "${{ inputs.release-type }}" == "patch" ]]; then
+          PR_BRANCH="${{ inputs.release-type }}/${{ env.TAG_PREFIX }}v${{ env.CRATE_VERSION }}"
+        else
+          PR_BRANCH="release-pr-${{ env.TAG_PREFIX }}v${{ env.BRANCH_VERSION }}"
+        fi
+
+        echo "PR_BRANCH=$PR_BRANCH" | tee -a $GITHUB_ENV
+        if [[ -n "${{ inputs.path }}" ]]; then
+          echo "PR_TITLE=chore(${{ inputs.path }}): Release \`${{ env.TAG_PREFIX }}v${{ env.CRATE_VERSION }}\`" | tee -a $GITHUB_ENV
+        else
+          echo "PR_TITLE=chore: Release \`${{ env.TAG_PREFIX }}v${{ env.CRATE_VERSION }}\`" | tee -a $GITHUB_ENV
+        fi
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+      shell: bash
+
+    - name: Update version in Cargo.toml
+      run: |
+        echo "Updating version in Cargo.toml..."
+
+        MEMBERS=$(tq workspace.members -f Cargo.toml)
+
+        if [[ -n "${{ inputs.more-crates }}" ]]; then
+          CRATES=$(echo ${{ inputs.more-crates }} | jq -Rc 'split(",")')
+          RELEASE_CRATES=$(echo "$MEMBERS" | jq --argjson more "$CRATES" -r '. += $more | .[]')
+        else
+          RELEASE_CRATES=$(echo "$MEMBERS" | jq -r '.[]')
+        fi
+
+        bump_version() {
+          cd "$1"
+          OLD_VERSION=$(grep -oP 'version = "\K[^"]+' Cargo.toml | head -n1)
+          if [[ "${{ env.CRATE_VERSION }}" > "$OLD_VERSION" ]]; then
+            sed -i "s/version = \"$OLD_VERSION\"/version = \"${{ env.CRATE_VERSION }}\"/" Cargo.toml
+          else
+            echo "New version is not greater than the current version for $1. Aborting..."
+            exit 1
+          fi
+          cd ${{ github.workspace }}/${{ inputs.path }}
+        }
+        
+        while IFS= read -r path; do
+          if [[ "$path" == *"/*" ]]; then
+            for dir in "${path%/*}"/*; do
+              if [ -d "$dir" ] && [ -f "$dir/Cargo.toml" ]; then
+                bump_version "$dir"
+              fi
+            done
+          else
+            bump_version "$path"
+          fi
+        done <<< "$RELEASE_CRATES"
+
+        # Log Cargo.toml changes
+        git diff
+      working-directory: ${{ github.workspace }}/${{ inputs.path }}
+      shell: bash
+
+    - name: Create pull request description
+      run: |
+        REPO=$( echo "${{ github.repository }}" | awk -F'/' '{ print $2 }')
+        if [[ -n "${{ inputs.tag-prefix }}" ]]; then
+          TAG="${{ inputs.tag-prefix }}-v${{ env.CRATE_VERSION }}"
+        else
+          TAG="v${{ env.CRATE_VERSION }}"
+        fi
+        if [[ -n "${{ inputs.path }}" ]]; then
+          NAME="$REPO/${{ inputs.path }}"
+        else
+          NAME="$REPO"
+        fi
+
+        printf '%s\n' "This is an automated release PR for \`$NAME\` version \`${{ env.CRATE_VERSION }}\`.
+
+        On merge, this will trigger the [release publish workflow](${{ github.server_url }}/${{ github.repository }}/actions/workflows/tag-release.yml), which will upload a new GitHub release with tag \`$TAG\`.
+
+        [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" > body.md
+      shell: bash
+
+    # TODO: Also open PR to `dev` to bump version if this is the latest release
+    - name: Create release PR
+      uses: peter-evans/create-pull-request@v7
+      with:
+        token: ${{ inputs.token }}
+        add-paths: |
+          **/Cargo.toml
+        commit-message: ${{ env.PR_TITLE }}
+        title: ${{ env.PR_TITLE }}
+        body-path: ./body.md
+        branch: ${{ env.PR_BRANCH }}
+        labels: automated-issue
+        reviewers: ${{ inputs.reviewers }}
