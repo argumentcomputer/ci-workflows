@@ -34,45 +34,67 @@ runs:
       id: get-tag
       run: |
         if [[ -n "${{ inputs.tag-prefix }}" ]]; then
-          TAG_PREFIX="${{ inputs.tag-prefix }}-"
+          TAG_PREFIX="${{ inputs.tag-prefix }}-v"
         else
           TAG_PREFIX=""
         fi
 
-        RELEASE_TAG=${TAG_PREFIX}v${{ inputs.version }}
+        RELEASE_TAG=${TAG_PREFIX}${{ inputs.version }}
 
         git tag -a $RELEASE_TAG -m "$RELEASE_TAG" origin/${{ inputs.release-branch }}
         git push origin $RELEASE_TAG --follow-tags
         echo "release-tag=$RELEASE_TAG" | tee -a "$GITHUB_OUTPUT"
+        echo "TAG_PREFIX=$TAG_PREFIX" | tee -a "$GITHUB_ENV"
       shell: bash
 
     - name: Get latest release reference
       id: get-latest-release
       run: |
         set +o pipefail
-        LATEST_RELEASE=$(gh release list --repo ${{ github.repository }} --limit 100 | grep -Ei "${{ inputs.tag-prefix }}" | head -n 1 | awk '{ print $1 }')
-        set -o pipefail
 
-        if [ -z "$LATEST_RELEASE" ]; then
-          LATEST_RELEASE=$(git rev-list --max-parents=0 HEAD)
-          echo "The first commit on branch ${{ inputs.release-branch }} is $LATEST_RELEASE"
+        NEW_MAJOR_VERSION=$(echo "${{ inputs.version }}" | cut -d '.' -f 1)
+
+        # Get the latest release version from the repository
+        LATEST_RELEASE=$(gh release list --repo ${{ github.repository }} --limit 100 | grep -Ei "${{ env.TAG_PREFIX }}" | head -n 1 | awk '{ print $1 }')
+
+        if [[ -n "${{ env.TAG_PREFIX }}" ]]; then
+          LATEST_MAJOR_VERSION=$(echo "$LATEST_RELEASE" | awk -F"${{ env.TAG_PREFIX }}" '{print $2}' | cut -d '.' -f 1)
         else
-          echo "Found release: $LATEST_RELEASE"
+          LATEST_MAJOR_VERSION=$(echo "$LATEST_RELEASE" | cut -d '.' -f 1)
         fi
 
-        echo "latest_release=$LATEST_RELEASE" | tee -a "$GITHUB_OUTPUT"
+        # If releasing a minor or patch version for an older major version, get the latest release for that major version
+        # Otherwise, use the latest available release
+        if [[ "$NEW_MAJOR_VERSION" -lt "$LATEST_MAJOR_VERSION" ]]; then
+          # Regex from https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string
+          D='0|[1-9][0-9]*'
+          PW='[0-9]*[a-zA-Z-][0-9a-zA-Z-]*'
+          MW='[0-9a-zA-Z-]+'
+          SEMVER_REGEX="${NEW_MAJOR_VERSION}\.($D)\.($D)(-(($D|$PW)(\.($D|$PW))*))?(\+($MW(\.$MW)*))?"
+
+          # Get the latest release within the same major version range
+          LATEST_RELEASE=$(gh release list --repo ${{ github.repository }} --limit 100 \
+            | grep -E "${{ env.TAG_PREFIX }}${SEMVER_REGEX}" \
+            | head -n 1)
+        fi
+
+        set -o pipefail
+
+        echo "Determined latest version for changelog: LATEST_RELEASE"
+
+        echo "latest-release=$LATEST_RELEASE" | tee -a "$GITHUB_OUTPUT"
       env:
         GH_TOKEN: ${{ github.token }}
       shell: bash
 
     # TODO: Add an automatic labeler for PRs based on title/commit prefix
     - name: Build Changelog
-      id: github_release
+      id: github-release
       uses: mikepenz/release-changelog-builder-action@v5
       with:
         configuration: ${{ inputs.changelog-config-file }}
         path: "./${{ inputs.changelog-path }}"
-        fromTag: ${{ steps.get-latest-release.outputs.latest_release }}
+        fromTag: ${{ steps.get-latest-release.outputs.latest-release }}
         toTag: ${{ steps.get-tag.outputs.release-tag }}
       env:
         GITHUB_TOKEN: ${{ github.token }}
@@ -80,7 +102,7 @@ runs:
     - name: Create Release
       uses: ncipollo/release-action@v1
       with:
-        body: ${{ steps.github_release.outputs.changelog }}
+        body: ${{ steps.github-release.outputs.changelog }}
         tag: ${{ steps.get-tag.outputs.release-tag }}
         commit: ${{ inputs.release-branch }}
         allowUpdates: true
