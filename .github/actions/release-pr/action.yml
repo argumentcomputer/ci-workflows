@@ -26,6 +26,7 @@ inputs:
   path:
     description: 'Relative path under the GitHub workspace'
     required: false
+  # Note: Use `_` instead of any `-` characters, as `-v` is parsed as a divider in `<tag-prefix>-v<version>`
   tag-prefix:
     description: 'Optional tag prefix before version number'
     required: false
