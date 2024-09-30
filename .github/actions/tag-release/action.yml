@@ -92,6 +92,7 @@ runs:
       id: github-release
       uses: mikepenz/release-changelog-builder-action@v5
       with:
+        mode: "COMMIT"
         configuration: ${{ inputs.changelog-config-file }}
         path: "./${{ inputs.changelog-path }}"
         fromTag: ${{ steps.get-latest-release.outputs.latest-release }}
