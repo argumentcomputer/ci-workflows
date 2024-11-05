@@ -1,0 +1,77 @@
+# Checks if `rust-toolchain.toml` has an outdated Rust version. If so, updates to the latest Rust release for either stable or nightly
+# Assumes `rust-toolchain.toml` exists at the base of the repo or an optional subdir
+# Returns the outdated test result, and old and new Rust versions as output
+#
+# The workflow caller is then responsible for making a commit or opening a PR with `peter-evans/create-pull-request`
+# Assumes the caller checks this action out in `${{ github.workspace }}/ci-workflows`, as this path is removed at the end of the action
+name: Rust version check
+
+description: Check if crate has outdated Rust version, updating `rust-toolchain.toml` to latest release if so
+
+inputs:
+  toolchain:
+    description: "Stable or nightly. Defaults to stable"
+    required: false
+  workdir:
+    description: "Optional subdirectory"
+    required: false
+
+outputs:
+  outdated:
+    description: "Boolean denoting whether `rust-toolchain.toml` is outdated"
+    value: ${{ steps.compare-versions.outputs.outdated }}
+  old-version:
+    description: "Previous Rust version"
+    value: ${{ steps.current-rust.outputs.version }}
+  new-version:
+    description: "Latest Rust version"
+    value: ${{ steps.latest-rust.outputs.version }}
+
+runs:
+  using: "composite"
+  steps: 
+    - name: Parse `rust-toolchain.toml`
+      shell: bash
+      id: current-rust
+      run: |
+        if [[ "${{ inputs.toolchain }}" == "nightly" ]]; then
+          version=$(rustup show | grep rustc | awk -F'[()]| ' '{ print $(NF-1) }')
+        else
+          version=$(rustup show | grep rustc | awk '{ printf $2 }')
+        fi
+        echo "version=$version" | tee -a $GITHUB_OUTPUT
+      working-directory: ${{ github.workspace }}/${{ inputs.workdir }}
+    - name: Get latest `${{ inputs.toolchain }}` Rust release
+      id: latest-rust
+      shell: bash
+      run: |
+        if [[ "${{ inputs.toolchain }}" == "nightly" ]]; then
+          version=$(rustup check | grep ${{ inputs.toolchain }} | awk -F'[()]| ' '{print $(NF-1)}')
+        else
+          version=$(rustup check | grep stable | awk '{print $(NF-2)}')
+        fi
+        echo "version=$version" | tee -a $GITHUB_OUTPUT
+    - name: Compare Rust versions
+      id: compare-versions
+      shell: bash
+      run: |
+        if [[ $(printf '%s\n' "${{ steps.current-rust.outputs.version }}" "${{ steps.latest-rust.outputs.version }}" | sort -V | head -n 1) != "${{ steps.latest-rust.outputs.version }}" ]]; then
+          echo "outdated=true" | tee -a $GITHUB_OUTPUT
+        fi
+      working-directory: ${{ github.workspace }}/${{ inputs.workdir }}
+    - name: Update `Cargo.toml`
+      if: steps.compare-versions.outputs.outdated == 'true'
+      shell: bash
+      run: |
+        if [[ "${{ inputs.toolchain }}" == "nightly" ]]; then
+          sed -i 's/channel = .*/channel = "nightly-${{ steps.latest-rust.outputs.version }}"/' rust-toolchain.toml
+        else
+          sed -i 's/channel = .*/channel = "${{ steps.latest-rust.outputs.version }}"/' rust-toolchain.toml
+        fi
+        echo "Outdated Rust, updating"
+        cat rust-toolchain.toml
+      working-directory: ${{ github.workspace }}/${{ inputs.workdir }}
+    - name: Clean up
+      shell: bash
+      run: |
+        rm -rf ${{ github.workspace }}/ci-workflows 
