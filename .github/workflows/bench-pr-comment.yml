@@ -148,7 +148,7 @@ jobs:
         with:
           packages: "${{ inputs.packages }}"
         # Get base branch of the PR
-      - uses: xt0rted/pull-request-comment-branch@v2
+      - uses: xt0rted/pull-request-comment-branch@v3
         id: comment-branch
       - uses: actions/checkout@v4
       - name: Checkout PR branch
