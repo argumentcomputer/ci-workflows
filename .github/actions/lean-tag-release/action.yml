@@ -1,0 +1,82 @@
+# Tags the current commit with the Lean version from the lean-toolchain file
+# and creates a GitHub release for it, with auto-generated release notes.
+#
+# Recommended trigger is a push to the default branch filtered to the
+# lean-toolchain file, so that the first commit on a new toolchain carries that
+# release's tag — the same convention the Lean ecosystem uses, and the one
+# `lean-update`'s pinned-tags bumping consumes in dependent repositories.
+# Commits that land between two toolchain bumps are included in the next
+# release automatically, and show up in its generated notes.
+#
+# Example caller workflow:
+#
+#   on:
+#     push:
+#       branches: [main]
+#       paths: [lean-toolchain]
+#     workflow_dispatch:
+#
+#   permissions:
+#     contents: write
+#
+#   jobs:
+#     tag:
+#       runs-on: ubuntu-latest
+#       steps:
+#         - uses: actions/checkout@v6
+#         - uses: argumentcomputer/ci-workflows/.github/actions/lean-tag-release@main
+name: Tag Lean release
+
+description: Tag the current commit with the Lean version from lean-toolchain and create a release
+
+inputs:
+  lean-toolchain:
+    description: 'Relative path to the lean-toolchain file'
+    required: false
+    default: "lean-toolchain"
+  token:
+    description: 'A GitHub token with `contents: write`, used to push the tag and create the release'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  tag:
+    description: 'The created tag, empty when nothing was tagged'
+    value: ${{ steps.get-tag.outputs.tag }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Get the Lean release tag
+      id: get-tag
+      shell: bash
+      run: |
+        toolchain=$(tr -d '[:space:]' < "${{ inputs.lean-toolchain }}")
+        case "$toolchain" in
+          leanprover/lean4:v*)
+            tag="${toolchain#leanprover/lean4:}"
+            ;;
+          *)
+            echo "::notice::'$toolchain' is not a released Lean toolchain; not tagging"
+            echo "tag=" | tee -a "$GITHUB_OUTPUT"
+            exit 0
+            ;;
+        esac
+        if [ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]; then
+          echo "::notice::Tag $tag already exists; leaving it untouched"
+          echo "tag=" | tee -a "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        echo "tag=$tag" | tee -a "$GITHUB_OUTPUT"
+
+    # Creates the tag at the current commit along with the release. The
+    # generated notes list the pull requests landed since the previous release.
+    - name: Create the release
+      if: steps.get-tag.outputs.tag != ''
+      uses: ncipollo/release-action@v1
+      with:
+        token: ${{ inputs.token }}
+        tag: ${{ steps.get-tag.outputs.tag }}
+        commit: ${{ github.sha }}
+        generateReleaseNotes: true
+        makeLatest: true
