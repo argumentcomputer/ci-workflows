@@ -7,27 +7,36 @@ on:
       repository:
         required: true
         type: string
-      source-branch:
-        required: false 
+      # `gh repo sync` takes a single branch name, so the upstream and the
+      # mirror must share it.
+      branch:
+        required: false
         default: 'main'
         type: string
-      dest-branch:
-        required: false 
-        default: 'main'
-        type: string
+    secrets:
+      TOKEN_APP_ID:
+        required: true
+      TOKEN_APP_PRIVATE_KEY:
+        required: true
+
+# `secrets.GITHUB_TOKEN` cannot carry the `workflow` scope, so it is rejected
+# whenever an upstream commit touches `.github/workflows/**`. A GitHub App
+# installation token with Workflows: write can push those commits.
+permissions: {}
 
 jobs:
   repo-sync:
     name: Sync changes from upstream
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/create-github-app-token@v3
+      id: generate-token
       with:
-        persist-credentials: false
+        app-id: ${{ secrets.TOKEN_APP_ID }}
+        private-key: ${{ secrets.TOKEN_APP_PRIVATE_KEY }}
+    # `github.repository` is the caller's repo, not this one, and the token is
+    # scoped to it by default.
     - name: repo-sync
-      uses: repo-sync/github-sync@v2
-      with:
-        source_repo: "https://github.com/${{ inputs.repository }}.git"
-        source_branch: "${{ inputs.source-branch }}"
-        destination_branch: "${{ inputs.dest-branch }}"
-        github_token: ${{ secrets.GITHUB_TOKEN }}
+      run: gh repo sync ${{ github.repository }} --source ${{ inputs.repository }} --branch ${{ inputs.branch }} --force
+      env:
+        GH_TOKEN: ${{ steps.generate-token.outputs.token }}
