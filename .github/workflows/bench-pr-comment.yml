@@ -67,18 +67,23 @@ jobs:
         id: format-runner
         run: |
           # Parse `default-runner` if it's a list of strings (e.g. `"self-hosted,gpu-bench")
-          RUNNER=$(echo ${{ inputs.default-runner }} | awk -F"," -v q=\" '{for (i=0; i<NF; i++) {print q$(i+1)q","}}')
+          RUNNER=$(echo ${INPUTS_DEFAULT_RUNNER} | awk -F"," -v q=\" '{for (i=0; i<NF; i++) {print q$(i+1)q","}}')
           RUNNER="[${RUNNER%,}]"
           echo "$RUNNER"
           # For some reason the input string is parsed as multiline, so this hack allows `$GITHUB_OUTPUT` to ingest it
           echo "runner<<EOF" >> $GITHUB_OUTPUT
           echo "$RUNNER" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+        env:
+          INPUTS_DEFAULT_RUNNER: ${{ inputs.default-runner }}
       - name: Parse PR comment body
         id: bench-params
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          INPUTS_DEFAULT_BENCHES: ${{ inputs.default-benches }}
         run: |
           # Parse `issue_comment` body
-          printf '${{ github.event.comment.body }}' > comment.txt
+          printf '%s' "$COMMENT_BODY" > comment.txt
           BENCH_COMMAND=$(head -n 1 comment.txt)
           echo "$BENCH_COMMAND"
           
@@ -86,7 +91,7 @@ jobs:
           BENCHES=$(echo $BENCH_COMMAND | awk -v q=\" '{for (i=1; i<=NF; i++) {if ($i ~ /^--bench/) {print q$(i+1)q","}}}')
           if [[ -z $BENCHES ]]; then
             # Add quotes to each default bench name in comma-separated list for `fromJSON` parsing
-            BENCHES=$(echo ${{ inputs.default-benches }} | awk -F"," -v q=\" '{for (i=0; i<NF; i++) {print q$(i+1)q","}}')
+            BENCHES=$(echo ${INPUTS_DEFAULT_BENCHES} | awk -F"," -v q=\" '{for (i=0; i<NF; i++) {print q$(i+1)q","}}')
           fi
           # Format for `fromJSON` parsing
           BENCHES="[${BENCHES%,}]"
@@ -97,7 +102,7 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
           # Get the list of features to run on each benchmark
           FEATURES=$(echo $BENCH_COMMAND | awk '{for (i=1; i<=NF; i++) {if ($i ~ /^--features/) {print $(i+1) }}}')
-          if [[ ${{ env.GPU_BENCHMARK }} = 'true' || $(echo $FEATURES | grep -s cuda) ]]; then
+          if [[ ${GPU_BENCHMARK} = 'true' || $(echo $FEATURES | grep -s cuda) ]]; then
             echo "cuda=true" | tee -a $GITHUB_OUTPUT
             COMMAND="gpu-benchmark"
             # Add the "cuda" feature if not already specified
@@ -124,20 +129,28 @@ jobs:
       # When using the `cuda` feature, several GPU-related env vars are set by the `gpu-setup` action below.
       # Thus there is no need to set them here. These inputs are mainly for benchmark parameters such as `LURK_RC`
       - name: Set env vars
+        env:
+          DEFAULT_ENV: ${{ inputs.default-env }}
+          COMMENT_ENV: ${{ needs.setup.outputs.env-vars }}
         run: |
           # Trims newlines that may arise from `$GITHUB_OUTPUT`
-          for var in ${{ inputs.default-env }}
+          # Both lists are deliberately unquoted so they word-split into
+          # individual `NAME=VALUE` pairs.
+          # shellcheck disable=SC2086
+          for var in $DEFAULT_ENV
           do
             echo "$(echo $var | tr -d '\n')" | tee -a $GITHUB_ENV
           done
           # Overrides default env vars with those specified in the `issue_comment` input if identically named
-          for var in ${{ needs.setup.outputs.env-vars }}
+          # shellcheck disable=SC2086
+          for var in $COMMENT_ENV
           do
             echo "$(echo $var | tr -d '\n')" | tee -a $GITHUB_ENV
           done
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: argumentcomputer/ci-workflows
+          persist-credentials: false
       - uses: ./.github/actions/gpu-setup
         if: ${{ needs.setup.outputs.cuda }}
         with:
@@ -148,9 +161,11 @@ jobs:
         with:
           packages: "${{ inputs.packages }}"
         # Get base branch of the PR
-      - uses: xt0rted/pull-request-comment-branch@v2
+      - uses: xt0rted/pull-request-comment-branch@v3
         id: comment-branch
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Checkout PR branch
         run: gh pr checkout $PR_NUMBER
         env:
@@ -172,7 +187,7 @@ jobs:
           branchName: ${{ steps.comment-branch.outputs.base_ref }}
       - name: Comment on successful run
         if: success()
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           issue-number: ${{ github.event.issue.number }}
           body: |
@@ -182,7 +197,7 @@ jobs:
 
       - name: Comment on failing run
         if: failure()
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           issue-number: ${{ github.event.issue.number }}
           body: |

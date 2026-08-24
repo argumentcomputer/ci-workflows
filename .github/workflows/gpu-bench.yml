@@ -20,9 +20,10 @@ jobs:
     runs-on: [self-hosted, gpu-bench]
     steps:
       # Set up GPU
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: argumentcomputer/ci-workflows
+          persist-credentials: false
       - uses: ./.github/actions/gpu-setup
         with:
           gpu-framework: 'cuda'
@@ -31,7 +32,9 @@ jobs:
         if: inputs.packages != ''
         with:
           packages: "${{ inputs.packages }}"
-      - uses: actions/checkout@v4
+      # `git-auto-commit-action` below pushes to `gh-pages` with the credentials
+      # this checkout persists, so they cannot be disabled here.
+      - uses: actions/checkout@v7 # zizmor: ignore[artipacked]
       # Install dependencies
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -49,34 +52,36 @@ jobs:
           echo "GPU_ID=$(echo $GPU_NAME | awk '{ print $NF }')" | tee -a $GITHUB_ENV
       # Checkout gh-pages to check for cached bench result
       - name: Checkout gh-pages
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: gh-pages
           path: gh-pages
+          persist-credentials: false
       - name: Check for cached bench result
         id: cached-bench
         run: |
-          if [ -f "${{ env.BASE_COMMIT }}-${{ env.GPU_ID }}.json" ]
+          if [ -f "$BASE_COMMIT-$GPU_ID.json" ]
           then
             echo "cached=true" | tee -a $GITHUB_OUTPUT
-            cp ${{ env.BASE_COMMIT }}-${{ env.GPU_ID }}.json ../${{ env.BASE_COMMIT }}.json
+            cp "$BASE_COMMIT-$GPU_ID.json" "../$BASE_COMMIT.json"
           else
             echo "cached=false" | tee -a $GITHUB_OUTPUT
           fi
         working-directory: ${{ github.workspace }}/gh-pages
       # Checkout base branch for comparative bench
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: steps.cached-bench.outputs.cached == 'false'
         with:
           ref: ${{ github.base_ref }}
           path: ${{ github.base_ref }}
+          persist-credentials: false
       - name: Run GPU bench on base branch
         if: steps.cached-bench.outputs.cached == 'false'
         run: |
           # Run benchmark
-          cargo criterion --features "cuda" --message-format=json > ${{ env.BASE_COMMIT }}.json
+          cargo criterion --features "cuda" --message-format=json > "$BASE_COMMIT.json"
           # Copy bench output to PR branch
-          cp ${{ env.BASE_COMMIT }}.json ..
+          cp "$BASE_COMMIT.json" ..
         working-directory: ${{ github.workspace }}/${{ github.base_ref }}
       - name: Run GPU bench on PR branch
         run: |
@@ -94,17 +99,20 @@ jobs:
           TOTAL_RAM=$(grep MemTotal /proc/meminfo | awk '{$2=$2/(1024^2); print int($2), "GB RAM";}')
           
           # Use conditionals to ensure that only non-empty variables are inserted
-          [[ ! -z "${{ env.GPU_NAME }}" ]] && sed -i "/^\"\"\"$/i ${{ env.GPU_NAME }}" tables.toml
+          [[ ! -z "$GPU_NAME" ]] && sed -i "/^\"\"\"$/i $GPU_NAME" tables.toml
           [[ ! -z "$CPU_MODEL" ]] && sed -i "/^\"\"\"$/i $CPU_MODEL" tables.toml
           [[ ! -z "$NUM_VCPUS" ]] && sed -i "/^\"\"\"$/i $NUM_VCPUs" tables.toml
           [[ ! -z "$TOTAL_RAM" ]] && sed -i "/^\"\"\"$/i $TOTAL_RAM" tables.toml          
-          sed -i "/^\"\"\"$/i Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" tables.toml
+          sed -i "/^\"\"\"$/i Workflow run: $GITHUB_SERVER_URL/$REPO/actions/runs/$RUN_ID" tables.toml
         working-directory: ${{ github.workspace }}
+        env:
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
       # Create a `criterion-table` and write in commit comment
       - name: Run `criterion-table`
-        run: cat ${{ env.BASE_COMMIT }}.json ${{ github.sha }}.json | criterion-table > BENCHMARKS.md
+        run: cat "$BASE_COMMIT.json" "$GITHUB_SHA.json" | criterion-table > BENCHMARKS.md
       - name: Write bench on commit comment
-        uses: peter-evans/commit-comment@v3
+        uses: peter-evans/commit-comment@v4
         with:
           body-path: BENCHMARKS.md
       # Check for a slowdown >= 10%. If so, open an issue but don't block merge
@@ -125,17 +133,22 @@ jobs:
         continue-on-error: true
       # Not possible to use ${{ github.event.number }} with the `merge_group` trigger
       - name: Get PR number from merge branch
+        env:
+          HEAD_REF: ${{ github.event.merge_group.head_ref }}
         run: |
-          echo "PR_NUMBER=$(echo ${{ github.event.merge_group.head_ref }} | sed -e 's/.*pr-\(.*\)-.*/\1/')" | tee -a $GITHUB_ENV
+          echo "PR_NUMBER=$(echo "$HEAD_REF" | sed -e 's/.*pr-\(.*\)-.*/\1/')" | tee -a $GITHUB_ENV
       - name: Create file for issue
         if: steps.regression-check.outcome == 'failure'
         run: |
-          printf '%s\n' "Regression >= 10% found during merge for PR #${{ env.PR_NUMBER }}
-          Commit: ${{ github.sha }}
-          Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" > ./_body.md
+          printf '%s\n' "Regression >= 10% found during merge for PR #$PR_NUMBER
+          Commit: $GITHUB_SHA
+          Workflow run: $GITHUB_SERVER_URL/$REPO/actions/runs/$RUN_ID" > ./_body.md
+        env:
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
       - name: Open issue on regression
         if: steps.regression-check.outcome == 'failure'
-        uses: peter-evans/create-issue-from-file@v5
+        uses: peter-evans/create-issue-from-file@v6
         with:
           title: ':rotating_light: Performance regression detected for PR #${{ env.PR_NUMBER }}'
           content-filepath: ./_body.md
@@ -144,12 +157,12 @@ jobs:
             automated issue
       - name: Remove old base bench
         run: |
-          rm ${{ env.BASE_COMMIT }}.json
-          mv ${{ github.sha }}.json ${{ github.sha }}-${{ env.GPU_ID }}.json
+          rm "$BASE_COMMIT.json"
+          mv "$GITHUB_SHA.json" "$GITHUB_SHA-$GPU_ID.json"
         working-directory: ${{ github.workspace }}
       - name: Commit bench result to `gh-pages` branch if no regression
         if: steps.regression-check.outcome != 'failure'
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           branch: gh-pages
           commit_message: '[automated] GPU Benchmark from PR #${{ env.PR_NUMBER }}'

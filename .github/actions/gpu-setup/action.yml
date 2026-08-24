@@ -8,7 +8,6 @@ inputs:
     description: 'cuda or opencl'
     required: false
     default: 'cuda'
-    type: string
 
 runs:
   using: "composite"
@@ -21,7 +20,12 @@ runs:
     - run: nvcc --version
       shell: bash
     - name: Set env vars
-      run: |
+      env:
+        GPU_FRAMEWORK: ${{ inputs.gpu-framework }}
+      # `ec-gpu` reads `EC_GPU_*` from the environment at build time, so these
+      # have to be exported rather than passed as step outputs. Every value
+      # below is a literal or comes from `nvidia-smi` on the runner itself.
+      run: | # zizmor: ignore[github-env]
         echo "GPU_NAME=$(nvidia-smi --query-gpu=gpu_name --format=csv,noheader,nounits | tail -n1)" | tee -a $GITHUB_ENV
         # The `compute`/`sm` number corresponds to the Nvidia GPU architecture (e.g. Ampere, Ada)
         # In order to use any GPU with this action, we want this to be configurable
@@ -29,7 +33,7 @@ runs:
         CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | sed 's/\.//g')
         echo "EC_GPU_CUDA_NVCC_ARGS=--fatbin --gpu-architecture=sm_$CUDA_ARCH --generate-code=arch=compute_$CUDA_ARCH,code=sm_$CUDA_ARCH" | tee -a $GITHUB_ENV
         echo "CUDA_ARCH=$CUDA_ARCH" | tee -a $GITHUB_ENV
-        if [ "${{ inputs.gpu-framework }}" = "cuda" ];
+        if [ "$GPU_FRAMEWORK" = "cuda" ];
         then
           echo "EC_GPU_FRAMEWORK=cuda" | tee -a $GITHUB_ENV
         else

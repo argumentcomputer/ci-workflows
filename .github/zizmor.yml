@@ -1,0 +1,5 @@
+rules:
+  # Every action here is version-pinned and tracked by Dependabot; hash-pinning
+  # is a posture this org has not adopted.
+  unpinned-uses:
+    disable: true

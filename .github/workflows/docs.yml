@@ -8,11 +8,14 @@ jobs:
     name: Generate crate documentation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: argumentcomputer/ci-workflows
+          persist-credentials: false
       - uses: ./.github/actions/ci-env
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - name: Generate documentation
         env:

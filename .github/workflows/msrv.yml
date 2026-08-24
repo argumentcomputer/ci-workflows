@@ -15,15 +15,18 @@ jobs:
   msrv:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: argumentcomputer/ci-workflows
+          persist-credentials: false
       - uses: ./.github/actions/ci-env
       - uses: ./.github/actions/install-deps
         if: inputs.packages != ''
         with:
           packages: "${{ inputs.packages }}"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-msrv

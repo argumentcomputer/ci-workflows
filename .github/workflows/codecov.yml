@@ -19,17 +19,19 @@ jobs:
     strategy:
       fail-fast: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: argumentcomputer/ci-workflows
+          persist-credentials: false
       - uses: ./.github/actions/ci-env
       - uses: ./.github/actions/install-deps
         if: inputs.packages != ''
         with:
           packages: "${{ inputs.packages }}"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
@@ -44,6 +46,6 @@ jobs:
       - name: Collect coverage data
         run: cargo llvm-cov nextest --lcov --output-path lcov.info --profile ci --release --workspace
       - name: Upload coverage data to codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           files: lcov.info

@@ -19,15 +19,18 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: argumentcomputer/ci-workflows
+          persist-credentials: false
       - uses: ./.github/actions/ci-env
       - uses: ./.github/actions/install-deps
         if: inputs.packages != ''
         with:
           packages: "${{ inputs.packages }}"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -45,7 +48,7 @@ jobs:
           fi
       - name: Check clippy warnings
         run: |
-          if $(cargo --list|grep -q xclippy); then 
+          if cargo --list | grep -q xclippy; then
             cargo xclippy -Dwarnings
           else 
             cargo clippy -Dwarnings
