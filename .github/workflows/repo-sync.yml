@@ -32,7 +32,7 @@ jobs:
     - uses: actions/create-github-app-token@v3
       id: generate-token
       with:
-        app-id: ${{ secrets.TOKEN_APP_ID }}
+        client-id: ${{ secrets.TOKEN_APP_ID }}
         private-key: ${{ secrets.TOKEN_APP_PRIVATE_KEY }}
         permission-contents: write
         permission-workflows: write
