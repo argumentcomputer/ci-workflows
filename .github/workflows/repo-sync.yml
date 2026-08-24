@@ -34,6 +34,8 @@ jobs:
       with:
         app-id: ${{ secrets.TOKEN_APP_ID }}
         private-key: ${{ secrets.TOKEN_APP_PRIVATE_KEY }}
+        permission-contents: write
+        permission-workflows: write
     # `github.repository` is the caller's repo, not this one, and the token is
     # scoped to it by default.
     - name: repo-sync

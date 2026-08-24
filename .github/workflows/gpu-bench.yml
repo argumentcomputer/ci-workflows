@@ -125,8 +125,10 @@ jobs:
         continue-on-error: true
       # Not possible to use ${{ github.event.number }} with the `merge_group` trigger
       - name: Get PR number from merge branch
+        env:
+          HEAD_REF: ${{ github.event.merge_group.head_ref }}
         run: |
-          echo "PR_NUMBER=$(echo ${{ github.event.merge_group.head_ref }} | sed -e 's/.*pr-\(.*\)-.*/\1/')" | tee -a $GITHUB_ENV
+          echo "PR_NUMBER=$(echo "$HEAD_REF" | sed -e 's/.*pr-\(.*\)-.*/\1/')" | tee -a $GITHUB_ENV
       - name: Create file for issue
         if: steps.regression-check.outcome == 'failure'
         run: |

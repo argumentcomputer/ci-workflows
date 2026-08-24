@@ -1,0 +1,35 @@
+# Assumes the repo under test is already checked out.
+name: Lint workflows
+
+description: Run actionlint and zizmor over a repo's workflows and composite actions
+
+inputs:
+  # actionlint pipes every `run:` block through shellcheck, whose info- and
+  # style-level findings are mostly noise in workflow scripts.
+  shellcheck-severity:
+    description: 'Minimum shellcheck severity actionlint reports: error, warning, info, or style'
+    required: false
+    default: 'warning'
+  # Left empty, zizmor discovers `.github/zizmor.yml` in the repo being linted.
+  zizmor-config:
+    description: 'Path to a zizmor config file'
+    required: false
+  zizmor-advisory:
+    description: 'Report zizmor findings without failing the job'
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - uses: raven-actions/actionlint@v2
+      env:
+        SHELLCHECK_OPTS: -S ${{ inputs.shellcheck-severity }}
+    - uses: zizmorcore/zizmor-action@v0.6.2
+      continue-on-error: ${{ inputs.zizmor-advisory == 'true' }}
+      with:
+        config: ${{ inputs.zizmor-config }}
+        # Mutually exclusive with `annotations`; the Security tab needs
+        # `security-events: write` from the calling job.
+        advanced-security: false
+        annotations: true

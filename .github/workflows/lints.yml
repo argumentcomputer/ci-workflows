@@ -45,7 +45,7 @@ jobs:
           fi
       - name: Check clippy warnings
         run: |
-          if $(cargo --list|grep -q xclippy); then 
+          if cargo --list | grep -q xclippy; then
             cargo xclippy -Dwarnings
           else 
             cargo clippy -Dwarnings

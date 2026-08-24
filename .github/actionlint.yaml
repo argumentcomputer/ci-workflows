@@ -1,0 +1,5 @@
+# Labels of the org's self-hosted runners, which actionlint cannot know about.
+self-hosted-runner:
+  labels:
+    - gpu-bench
+    - gpu-ci

@@ -76,9 +76,11 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
       - name: Parse PR comment body
         id: bench-params
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
           # Parse `issue_comment` body
-          printf '${{ github.event.comment.body }}' > comment.txt
+          printf '%s' "$COMMENT_BODY" > comment.txt
           BENCH_COMMAND=$(head -n 1 comment.txt)
           echo "$BENCH_COMMAND"
           
