@@ -14,10 +14,6 @@ inputs:
   zizmor-config:
     description: 'Path to a zizmor config file'
     required: false
-  zizmor-advisory:
-    description: 'Report zizmor findings without failing the job'
-    required: false
-    default: 'true'
 
 runs:
   using: composite
@@ -25,8 +21,10 @@ runs:
     - uses: raven-actions/actionlint@v2
       env:
         SHELLCHECK_OPTS: -S ${{ inputs.shellcheck-severity }}
+    # Note that `continue-on-error` is silently ignored on composite action
+    # steps, so any zizmor finding fails the calling job. Suppress findings
+    # that don't apply via `.github/zizmor.yml` or `# zizmor: ignore` comments.
     - uses: zizmorcore/zizmor-action@v0.6.2
-      continue-on-error: ${{ inputs.zizmor-advisory == 'true' }}
       with:
         config: ${{ inputs.zizmor-config }}
         # Mutually exclusive with `annotations`; the Security tab needs

@@ -29,12 +29,14 @@ outputs:
 
 runs:
   using: "composite"
-  steps: 
+  steps:
     - name: Parse `rust-toolchain.toml`
       shell: bash
       id: current-rust
+      env:
+        TOOLCHAIN: ${{ inputs.toolchain }}
       run: |
-        if [[ "${{ inputs.toolchain }}" == "nightly" ]]; then
+        if [[ "$TOOLCHAIN" == "nightly" ]]; then
           version=$(rustup show | grep rustc | awk -F'[()]| ' '{ print $(NF-1) }')
         else
           version=$(rustup show | grep rustc | awk '{ printf $2 }')
@@ -44,9 +46,11 @@ runs:
     - name: Get latest `${{ inputs.toolchain }}` Rust release
       id: latest-rust
       shell: bash
+      env:
+        TOOLCHAIN: ${{ inputs.toolchain }}
       run: |
-        if [[ "${{ inputs.toolchain }}" == "nightly" ]]; then
-          version=$(rustup check | grep ${{ inputs.toolchain }} | awk -F'[()]| ' '{print $(NF-1)}')
+        if [[ "$TOOLCHAIN" == "nightly" ]]; then
+          version=$(rustup check | grep "$TOOLCHAIN" | awk -F'[()]| ' '{print $(NF-1)}')
         else
           version=$(rustup check | grep stable | awk '{print $(NF-2)}')
         fi
@@ -54,24 +58,32 @@ runs:
     - name: Compare Rust versions
       id: compare-versions
       shell: bash
+      env:
+        CURRENT_VERSION: ${{ steps.current-rust.outputs.version }}
+        LATEST_VERSION: ${{ steps.latest-rust.outputs.version }}
       run: |
-        if [[ $(printf '%s\n' "${{ steps.current-rust.outputs.version }}" "${{ steps.latest-rust.outputs.version }}" | sort -V | head -n 1) != "${{ steps.latest-rust.outputs.version }}" ]]; then
+        if [[ $(printf '%s\n' "$CURRENT_VERSION" "$LATEST_VERSION" | sort -V | head -n 1) != "$LATEST_VERSION" ]]; then
           echo "outdated=true" | tee -a $GITHUB_OUTPUT
         fi
       working-directory: ${{ github.workspace }}/${{ inputs.workdir }}
     - name: Update `Cargo.toml`
       if: steps.compare-versions.outputs.outdated == 'true'
       shell: bash
+      env:
+        TOOLCHAIN: ${{ inputs.toolchain }}
+        LATEST_VERSION: ${{ steps.latest-rust.outputs.version }}
       run: |
-        if [[ "${{ inputs.toolchain }}" == "nightly" ]]; then
-          sed -i 's/channel = .*/channel = "nightly-${{ steps.latest-rust.outputs.version }}"/' rust-toolchain.toml
+        if [[ "$TOOLCHAIN" == "nightly" ]]; then
+          sed -i "s/channel = .*/channel = \"nightly-$LATEST_VERSION\"/" rust-toolchain.toml
         else
-          sed -i 's/channel = .*/channel = "${{ steps.latest-rust.outputs.version }}"/' rust-toolchain.toml
+          sed -i "s/channel = .*/channel = \"$LATEST_VERSION\"/" rust-toolchain.toml
         fi
         echo "Outdated Rust, updating"
         cat rust-toolchain.toml
       working-directory: ${{ github.workspace }}/${{ inputs.workdir }}
     - name: Clean up
       shell: bash
+      env:
+        WORKSPACE: ${{ github.workspace }}
       run: |
-        rm -rf ${{ github.workspace }}/ci-workflows 
+        rm -rf "$WORKSPACE/ci-workflows"

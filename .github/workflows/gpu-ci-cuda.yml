@@ -28,6 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: argumentcomputer/ci-workflows
+          persist-credentials: false
       - uses: ./.github/actions/gpu-setup
         with:
           gpu-framework: 'cuda'
@@ -39,9 +40,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@nextest
       - uses: Swatinem/rust-cache@v2
       - name: CUDA tests
+        env:
+          FEATURES: ${{ inputs.features }}
         run: |
-          cargo nextest run --profile ci --cargo-profile dev-ci --features "cuda,${{ inputs.features }}"
+          cargo nextest run --profile ci --cargo-profile dev-ci --features "cuda,$FEATURES"

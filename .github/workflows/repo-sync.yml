@@ -39,6 +39,8 @@ jobs:
     # `github.repository` is the caller's repo, not this one, and the token is
     # scoped to it by default.
     - name: repo-sync
-      run: gh repo sync ${{ github.repository }} --source ${{ inputs.repository }} --branch ${{ inputs.branch }} --force
+      run: gh repo sync ${{ github.repository }} --source ${INPUTS_REPOSITORY} --branch ${INPUTS_BRANCH} --force
       env:
         GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+        INPUTS_REPOSITORY: ${{ inputs.repository }}
+        INPUTS_BRANCH: ${{ inputs.branch }}

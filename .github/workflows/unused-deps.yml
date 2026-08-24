@@ -25,10 +25,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: argumentcomputer/ci-workflows
           path: ci-workflows
+          persist-credentials: false
       - uses: ./ci-workflows/.github/actions/install-deps
         if: inputs.packages != ''
         with:
@@ -40,7 +43,9 @@ jobs:
       # opt to use the stable toolchain specified via the 'rust-toolchain' file
       # and instead enable nightly features via 'RUSTC_BOOTSTRAP'
       - name: run cargo-udeps
-        run: RUSTC_BOOTSTRAP=1 cargo udeps --workspace --all-targets --features "${{ inputs.features }}"
+        run: RUSTC_BOOTSTRAP=1 cargo udeps --workspace --all-targets --features "${INPUTS_FEATURES}"
+        env:
+          INPUTS_FEATURES: ${{ inputs.features }}
       - uses: JasonEtco/create-an-issue@v2
         if: ${{ failure() }}
         env:

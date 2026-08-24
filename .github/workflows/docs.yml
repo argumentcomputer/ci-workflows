@@ -11,8 +11,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: argumentcomputer/ci-workflows
+          persist-credentials: false
       - uses: ./.github/actions/ci-env
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - name: Generate documentation
         env:

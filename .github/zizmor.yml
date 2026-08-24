@@ -3,12 +3,3 @@ rules:
   # is a posture this org has not adopted.
   unpinned-uses:
     disable: true
-  template-injection:
-    # These expand caller-supplied `inputs.*`, not attacker-supplied data. A
-    # caller that can set them can already write arbitrary steps of its own.
-    ignore:
-      - bench-pr-comment.yml
-      - gpu-ci-cuda.yml
-      - gpu-ci-opencl.yml
-      - repo-sync.yml
-      - unused-deps.yml

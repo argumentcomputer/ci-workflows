@@ -5,7 +5,10 @@ description: Set Rust env vars
 runs:
   using: "composite"
   steps: 
-  - run: |
+  # `cargo` and `rustc` read these from the environment, so they must be
+  # exported for the caller's later steps rather than passed as step outputs.
+  # Every value written here is a literal.
+  - run: | # zizmor: ignore[github-env]
       echo "CARGO_TERM_COLOR=always" | tee -a $GITHUB_ENV
 
       # Disable incremental compilation.
