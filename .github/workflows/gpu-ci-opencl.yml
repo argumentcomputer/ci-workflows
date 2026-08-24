@@ -25,7 +25,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.action == 'enqueued'
     runs-on: [self-hosted, gpu-ci]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: argumentcomputer/ci-workflows
           persist-credentials: false
@@ -37,7 +37,7 @@ jobs:
         if: inputs.packages != ''
         with:
           packages: "${{ inputs.packages }}"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
           persist-credentials: false

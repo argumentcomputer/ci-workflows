@@ -20,7 +20,7 @@ jobs:
     runs-on: [self-hosted, gpu-bench]
     steps:
       # Set up GPU
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: argumentcomputer/ci-workflows
           persist-credentials: false
@@ -34,7 +34,7 @@ jobs:
           packages: "${{ inputs.packages }}"
       # `git-auto-commit-action` below pushes to `gh-pages` with the credentials
       # this checkout persists, so they cannot be disabled here.
-      - uses: actions/checkout@v4 # zizmor: ignore[artipacked]
+      - uses: actions/checkout@v7 # zizmor: ignore[artipacked]
       # Install dependencies
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -52,7 +52,7 @@ jobs:
           echo "GPU_ID=$(echo $GPU_NAME | awk '{ print $NF }')" | tee -a $GITHUB_ENV
       # Checkout gh-pages to check for cached bench result
       - name: Checkout gh-pages
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: gh-pages
           path: gh-pages
@@ -69,7 +69,7 @@ jobs:
           fi
         working-directory: ${{ github.workspace }}/gh-pages
       # Checkout base branch for comparative bench
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: steps.cached-bench.outputs.cached == 'false'
         with:
           ref: ${{ github.base_ref }}
@@ -112,7 +112,7 @@ jobs:
       - name: Run `criterion-table`
         run: cat "$BASE_COMMIT.json" "$GITHUB_SHA.json" | criterion-table > BENCHMARKS.md
       - name: Write bench on commit comment
-        uses: peter-evans/commit-comment@v3
+        uses: peter-evans/commit-comment@v4
         with:
           body-path: BENCHMARKS.md
       # Check for a slowdown >= 10%. If so, open an issue but don't block merge
@@ -148,7 +148,7 @@ jobs:
           RUN_ID: ${{ github.run_id }}
       - name: Open issue on regression
         if: steps.regression-check.outcome == 'failure'
-        uses: peter-evans/create-issue-from-file@v5
+        uses: peter-evans/create-issue-from-file@v6
         with:
           title: ':rotating_light: Performance regression detected for PR #${{ env.PR_NUMBER }}'
           content-filepath: ./_body.md
@@ -162,7 +162,7 @@ jobs:
         working-directory: ${{ github.workspace }}
       - name: Commit bench result to `gh-pages` branch if no regression
         if: steps.regression-check.outcome != 'failure'
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           branch: gh-pages
           commit_message: '[automated] GPU Benchmark from PR #${{ env.PR_NUMBER }}'

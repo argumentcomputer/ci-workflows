@@ -147,7 +147,7 @@ jobs:
           do
             echo "$(echo $var | tr -d '\n')" | tee -a $GITHUB_ENV
           done
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: argumentcomputer/ci-workflows
           persist-credentials: false
@@ -161,9 +161,9 @@ jobs:
         with:
           packages: "${{ inputs.packages }}"
         # Get base branch of the PR
-      - uses: xt0rted/pull-request-comment-branch@v2
+      - uses: xt0rted/pull-request-comment-branch@v3
         id: comment-branch
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Checkout PR branch
@@ -187,7 +187,7 @@ jobs:
           branchName: ${{ steps.comment-branch.outputs.base_ref }}
       - name: Comment on successful run
         if: success()
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           issue-number: ${{ github.event.issue.number }}
           body: |
@@ -197,7 +197,7 @@ jobs:
 
       - name: Comment on failing run
         if: failure()
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           issue-number: ${{ github.event.issue.number }}
           body: |

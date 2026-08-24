@@ -11,7 +11,7 @@ jobs:
   typo-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -59,7 +59,7 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
       - name: Create pull request
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         if: steps.typo-check.outputs.typos == 'true'
         with:
           token: ${{ steps.generate-token.outputs.token }}

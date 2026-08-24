@@ -97,7 +97,7 @@ runs:
     # TODO: Add an automatic labeler for PRs based on title/commit prefix
     - name: Build Changelog
       id: github-release
-      uses: mikepenz/release-changelog-builder-action@v5
+      uses: mikepenz/release-changelog-builder-action@v6
       with:
         mode: "COMMIT"
         configuration: ${{ inputs.changelog-config-file }}

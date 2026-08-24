@@ -255,7 +255,7 @@ runs:
 
     # TODO: Also open PR to `dev` to bump version if this is the latest release
     - name: Create release PR
-      uses: peter-evans/create-pull-request@v7
+      uses: peter-evans/create-pull-request@v8
       with:
         token: ${{ inputs.token }}
         add-paths: |
