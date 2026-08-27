@@ -1,0 +1,138 @@
+# Smoke tests for this repo's composite actions
+name: Test actions
+
+on:
+  push:
+    branches: main
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  # Exercises the create/update/invalid-input paths against a stub `gh` that
+  # records its calls, so no real issues are touched
+  create-issue:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install stub gh
+        run: |
+          mkdir -p "$RUNNER_TEMP/stub-bin"
+          cat > "$RUNNER_TEMP/stub-bin/gh" <<'EOF'
+          #!/usr/bin/env bash
+          echo "gh $*" >> "$GH_CALL_LOG"
+          case "$1 $2" in
+            "issue list") cat "$GH_ISSUES" ;;
+            "issue create") echo "https://github.com/example/repo/issues/1" ;;
+          esac
+          EOF
+          chmod +x "$RUNNER_TEMP/stub-bin/gh"
+          echo "$RUNNER_TEMP/stub-bin" >> "$GITHUB_PATH"
+          echo "GH_CALL_LOG=$RUNNER_TEMP/gh-calls.log" | tee -a "$GITHUB_ENV"
+          echo "GH_ISSUES=$RUNNER_TEMP/issues.json" | tee -a "$GITHUB_ENV"
+          echo "[]" > "$RUNNER_TEMP/issues.json"
+      - name: Create a new issue
+        uses: $/.github/actions/create-issue
+        with:
+          title: Test issue
+          labels: test-label
+          body: Test body
+      - name: Update an existing issue with the same title
+        run: |
+          echo '[{"number": 7, "title": "Test issue"}, {"number": 9, "title": "other"}]' > "$GH_ISSUES"
+      - uses: $/.github/actions/create-issue
+        with:
+          title: Test issue
+          body: Updated body
+      - name: Reject setting both body and body-file
+        id: invalid
+        continue-on-error: true
+        uses: $/.github/actions/create-issue
+        with:
+          title: Test issue
+          body: Test body
+          body-file: README.md
+      - name: Assert recorded gh calls
+        env:
+          INVALID_OUTCOME: ${{ steps.invalid.outcome }}
+        run: |
+          cat "$GH_CALL_LOG"
+          set -x
+          [[ "$INVALID_OUTCOME" == failure ]]
+          grep -qF -- "issue create --repo $GITHUB_REPOSITORY --title Test issue --body Test body" "$GH_CALL_LOG"
+          grep -qF -- "issue edit https://github.com/example/repo/issues/1 --repo $GITHUB_REPOSITORY --add-label test-label" "$GH_CALL_LOG"
+          grep -qF -- "issue edit 7 --repo $GITHUB_REPOSITORY --body Updated body" "$GH_CALL_LOG"
+          # The invalid input errors out before any gh call, so only the two
+          # earlier action runs listed issues
+          [[ "$(grep -cF -- "issue list" "$GH_CALL_LOG")" == 2 ]]
+
+  # Runs the Rust CI actions on a generated fixture crate via the documented
+  # caller pattern: checkout, then toolchain setup, then the action
+  rust-actions:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Generate fixture crate
+        run: cargo init --lib --name fixture .
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          # Don't save caches from test fixtures
+          cache: false
+      - uses: $/.github/actions/lints
+      - uses: $/.github/actions/wasm
+      - uses: $/.github/actions/unused-deps
+
+  # An up-to-date pin must not open an issue; an outdated pin must open one
+  # with the parsed versions. Issue calls go to the same stub `gh` as above.
+  rust-version-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install stub gh
+        run: |
+          mkdir -p "$RUNNER_TEMP/stub-bin"
+          cat > "$RUNNER_TEMP/stub-bin/gh" <<'EOF'
+          #!/usr/bin/env bash
+          echo "gh $*" >> "$GH_CALL_LOG"
+          case "$1 $2" in
+            "issue list") echo "[]" ;;
+            "issue create") echo "https://github.com/example/repo/issues/1" ;;
+          esac
+          EOF
+          chmod +x "$RUNNER_TEMP/stub-bin/gh"
+          echo "$RUNNER_TEMP/stub-bin" >> "$GITHUB_PATH"
+          echo "GH_CALL_LOG=$RUNNER_TEMP/gh-calls.log" | tee -a "$GITHUB_ENV"
+      - name: Pin an up-to-date toolchain
+        run: printf '[toolchain]\nchannel = "stable"\n' > rust-toolchain.toml
+      - uses: $/.github/actions/rust-version-check
+      - name: Pin an outdated toolchain
+        run: |
+          printf '[toolchain]\nchannel = "1.70.0"\n' > rust-toolchain.toml
+          # Install it so `rustup show` reports it as the active version
+          rustup toolchain install 1.70.0 --profile minimal
+      - uses: $/.github/actions/rust-version-check
+      - name: Assert only the outdated pin opened an issue
+        run: |
+          touch "$GH_CALL_LOG"
+          cat "$GH_CALL_LOG"
+          set -x
+          [[ "$(grep -cF -- "issue create" "$GH_CALL_LOG")" == 1 ]]
+          grep -qF -- "issue create --repo $GITHUB_REPOSITORY --title chore: rust toolchain needs an upgrade" "$GH_CALL_LOG"
+          # The parsed toolchain version made it into the issue body
+          grep -qF -- "(1.70.0)" "$GH_CALL_LOG"
