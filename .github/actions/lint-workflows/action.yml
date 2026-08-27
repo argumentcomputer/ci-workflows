@@ -25,6 +25,12 @@ runs:
         # actionlint doesn't know the `$/` self-repository syntax yet and
         # misparses it as {owner}/{repo}@{ref}
         flags: -ignore 'specifying action "\$/.+" in invalid format'
+    - name: Shellcheck composite action scripts
+      shell: bash
+      env:
+        SEVERITY: ${{ inputs.shellcheck-severity }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: python3 "$ACTION_PATH/shellcheck_actions.py"
     # Note that `continue-on-error` is silently ignored on composite action
     # steps, so any zizmor finding fails the calling job. Suppress findings
     # that don't apply via `.github/zizmor.yml` or `# zizmor: ignore` comments.
