@@ -1,0 +1,49 @@
+name: Sync from upstream repo
+description:
+  Force-sync a branch from its upstream repository, opening an issue asking
+  for a manual sync when the push is rejected — e.g. when upstream changed
+  files under `.github/workflows/`, which `GITHUB_TOKEN` cannot push. The
+  calling job needs `contents` and `issues` write permissions. No checkout is
+  required.
+
+inputs:
+  repository:
+    description: Upstream repository formatted as "owner/repo", e.g. "argumentcomputer/ix"
+    required: true
+  branch:
+    description:
+      Branch to sync. `gh repo sync` takes a single branch name, so the
+      upstream and the mirror must share it.
+    required: false
+    default: 'main'
+  token:
+    description: GitHub token with `contents` and `issues` write access
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    # Pushes made with `GITHUB_TOKEN` don't trigger `on: push` workflows in
+    # the fork, so a sync can't start a recursive run
+    - name: repo-sync
+      shell: bash
+      run: gh repo sync "$GITHUB_REPOSITORY" --source "$INPUTS_REPOSITORY" --branch "$INPUTS_BRANCH" --force
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        INPUTS_REPOSITORY: ${{ inputs.repository }}
+        INPUTS_BRANCH: ${{ inputs.branch }}
+    - uses: $/.github/actions/create-issue
+      if: failure()
+      with:
+        token: ${{ inputs.token }}
+        title: "chore: manual sync required from ${{ inputs.repository }}"
+        labels: automated-issue
+        body: |
+          The scheduled sync of `${{ inputs.branch }}` from [`${{ inputs.repository }}`](https://github.com/${{ inputs.repository }}) failed.
+
+          The usual cause is an upstream change under `.github/workflows/`, which `GITHUB_TOKEN` is not allowed to push. Review the incoming changes, then sync manually with the "Sync fork" button or a token carrying the `workflow` scope. Close this issue once the branch is synced.
+
+          Check the [failed sync run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for error details.
+
+          This issue was raised by `https://github.com/argumentcomputer/ci-workflows/tree/main/.github/actions/repo-sync`.

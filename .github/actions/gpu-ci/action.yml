@@ -1,0 +1,50 @@
+name: GPU CI tests
+description: >-
+  Rust tests on a CUDA or OpenCL GPU. Assumes the repo is already checked out
+  with `submodules: recursive` and a Rust toolchain with caching is already
+  set up, e.g. via `actions-rust-lang/setup-rust-toolchain`. Prerequisites — a self-hosted Nvidia GPU
+  runner with CUDA enabled attached to the caller repo (typically labeled
+  `gpu-ci`), and the `cuda` (plus `opencl` if selected) Cargo features. We
+  expect dependents to run this on the `pull_request` and `merge_group`
+  triggers, gating the job with `if: github.event_name == 'merge_group'` so
+  it shows as a skipped status check on the PR, then runs once on the merge
+  queue's merge commit when attempting to merge.
+
+inputs:
+  gpu-framework:
+    description: GPU framework to test, either 'cuda' or 'opencl'
+    required: false
+    default: 'cuda'
+  features:
+    description:
+      Comma-separated list of features to run in addition to the GPU framework
+      features
+    required: false
+    default: ''
+  packages:
+    description: List of prerequisite Ubuntu packages, separated by whitespace
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - uses: $/.github/actions/gpu-setup
+      with:
+        gpu-framework: ${{ inputs.gpu-framework }}
+    - uses: $/.github/actions/install-deps
+      if: inputs.packages != ''
+      with:
+        packages: "${{ inputs.packages }}"
+    - uses: taiki-e/install-action@nextest
+    - name: GPU tests
+      shell: bash
+      env:
+        FEATURES: ${{ inputs.features }}
+        GPU_FRAMEWORK: ${{ inputs.gpu-framework }}
+      run: |
+        if [[ "$GPU_FRAMEWORK" == "opencl" ]]; then
+          gpu_features="cuda,opencl"
+        else
+          gpu_features="cuda"
+        fi
+        cargo nextest run --profile ci --cargo-profile dev-ci --features "$gpu_features,$FEATURES"

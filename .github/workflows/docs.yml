@@ -3,20 +3,20 @@ name: Generate and deploy crate docs
 on:
   workflow_call:
 
+permissions: {}
+
 jobs:
   docs:
     name: Generate crate documentation
     runs-on: ubuntu-latest
+    # `contents: write` for the `gh-pages` deploy
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
         with:
-          repository: argumentcomputer/ci-workflows
           persist-credentials: false
-      - uses: ./.github/actions/ci-env
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Generate documentation
         env:
           RUSTDOCFLAGS: "--enable-index-page -Zunstable-options"

@@ -1,0 +1,53 @@
+name: Unused dependency check
+description: >-
+  Run cargo-udeps and open an issue if unused dependencies are found. Assumes
+  the repo is already checked out and a Rust toolchain with caching is
+  already set up, e.g. via `actions-rust-lang/setup-rust-toolchain`. The calling job needs `issues: write`.
+
+inputs:
+  features:
+    description: Comma-separated list of features to check
+    required: false
+    default: ''
+  packages:
+    description: List of prerequisite Ubuntu packages, separated by whitespace
+    required: false
+    default: ''
+  token:
+    description: GitHub token with `issues` write access
+    required: false
+    default: ${{ github.token }}
+runs:
+  using: composite
+  steps:
+    - uses: $/.github/actions/install-deps
+      if: inputs.packages != ''
+      with:
+        packages: "${{ inputs.packages }}"
+    - uses: taiki-e/install-action@cargo-udeps
+    # Normally running cargo-udeps requires use of a nightly compiler
+    # In order to have a more stable and less noisy experience, lets instead
+    # opt to use the stable toolchain specified via the 'rust-toolchain' file
+    # and instead enable nightly features via 'RUSTC_BOOTSTRAP'
+    - name: run cargo-udeps
+      shell: bash
+      run: RUSTC_BOOTSTRAP=1 cargo udeps --workspace --all-targets --features "${INPUTS_FEATURES}"
+      env:
+        INPUTS_FEATURES: ${{ inputs.features }}
+    - uses: $/.github/actions/create-issue
+      if: failure()
+      with:
+        token: ${{ inputs.token }}
+        title: "chore: some installed deps are not needed"
+        labels: automated-issue
+        body: |
+          Some dependencies specified in `Cargo.toml` are not needed.
+
+          Check the [unused dependencies sanity check](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) workflow for details.
+
+          This issue was raised by `https://github.com/argumentcomputer/ci-workflows/tree/main/.github/actions/unused-deps`.
+
+          > **Note**
+          > If this is a false positive, please refer to the [`cargo-udeps` docs][cargo-udeps-docs] on how to ignore the dependencies.
+
+          [cargo-udeps-docs]: https://github.com/est31/cargo-udeps#ignoring-some-of-the-dependencies

@@ -1,0 +1,49 @@
+name: Create or update issue
+description:
+  Create an issue in the current repository, updating the body of an existing
+  open issue with the same title instead of filing a duplicate. Requires
+  `issues` write permission and the gh CLI on the runner.
+
+inputs:
+  title:
+    description: Issue title, also used to match an existing open issue
+    required: true
+  body:
+    description:
+      Issue body text. Exactly one of `body` and `body-file` must be set.
+    required: false
+    default: ''
+  body-file:
+    description:
+      Path to a file containing the issue body, e.g. a generated report
+    required: false
+    default: ''
+  labels:
+    description:
+      Comma-separated labels to apply on creation. Best-effort — a label that
+      cannot be applied logs a warning instead of failing.
+    required: false
+    default: ''
+  update-existing:
+    description: Update the existing open issue's body instead of skipping it
+    required: false
+    default: 'true'
+  token:
+    description: GitHub token with `issues` write access
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Create or update issue
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        INPUT_TITLE: ${{ inputs.title }}
+        INPUT_BODY: ${{ inputs.body }}
+        INPUT_BODY_FILE: ${{ inputs.body-file }}
+        INPUT_LABELS: ${{ inputs.labels }}
+        INPUT_UPDATE_EXISTING: ${{ inputs.update-existing }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: python3 "$ACTION_PATH/create_issue.py"

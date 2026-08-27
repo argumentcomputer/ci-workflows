@@ -4,8 +4,12 @@ name: cargo-deny
 on:
   workflow_call:
 
+permissions: {}
+
 jobs:
   cargo-deny:
+    permissions:
+      contents: read
     name: cargo-deny (advisories, licenses, bans, ...)
     runs-on: ubuntu-latest
     steps:

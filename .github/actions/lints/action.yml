@@ -1,0 +1,50 @@
+name: Check lints and code quality
+description:
+  Rustfmt, clippy, and doctests. Assumes the repo is already checked out and
+  a Rust toolchain with caching is already set up, e.g. via
+  `actions-rust-lang/setup-rust-toolchain`.
+
+inputs:
+  packages:
+    description: List of prerequisite Ubuntu packages, separated by whitespace
+    required: false
+    default: ''
+  nightly-fmt:
+    description:
+      Runs `cargo fmt +nightly`, for use with nightly config options in
+      `rustfmt.toml`
+    required: false
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - uses: $/.github/actions/install-deps
+      if: inputs.packages != ''
+      with:
+        packages: "${{ inputs.packages }}"
+    - shell: bash
+      run: rustup component add rustfmt clippy
+    - if: inputs.nightly-fmt == 'true'
+      shell: bash
+      run: rustup toolchain install nightly --component rustfmt
+    - name: Check Rustfmt Code Style
+      shell: bash
+      env:
+        NIGHTLY_FMT: ${{ inputs.nightly-fmt }}
+      run: |
+        if [[ "$NIGHTLY_FMT" == "true" ]]; then
+          cargo +nightly fmt --all -- --check
+        else
+          cargo fmt --all -- --check
+        fi
+    - name: Check clippy warnings
+      shell: bash
+      run: |
+        if cargo --list | grep -q xclippy; then
+          cargo xclippy -Dwarnings
+        else
+          cargo clippy -Dwarnings
+        fi
+    - name: Doctests
+      shell: bash
+      run: cargo test --doc --workspace

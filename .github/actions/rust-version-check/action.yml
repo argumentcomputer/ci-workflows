@@ -1,0 +1,52 @@
+name: Rust version check
+description: >-
+  Check whether the Rust version specified in `rust-toolchain.toml` is out of
+  date with the latest stable, opening an issue if so. Compares the full
+  `<major>.<minor>.<patch>` of `rustup show` with `rustup check`, because the
+  patch version auto-updates if unspecified in `rust-toolchain.toml`. Assumes
+  the repo is already checked out. The calling job needs `issues: write`.
+
+inputs:
+  token:
+    description: GitHub token with `issues` write access
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    # `rustup show` below must report the `rust-toolchain.toml` version while
+    # `rustup check` reports the latest stable, so both must be installed
+    - name: Install latest stable
+      shell: bash
+      run: rustup toolchain install stable
+
+    - name: Parse rust-toolchain.toml
+      shell: bash
+      run: echo "TOOLCHAIN_VERSION=$(rustup show | grep rustc | awk '{ print $2 }')" | tee -a $GITHUB_ENV
+
+    - name: Get latest stable Rust version
+      shell: bash
+      run: echo "RUST_VERSION=$(rustup check | grep stable | awk '{print $(NF-2)}')" | tee -a $GITHUB_ENV
+
+    - name: Compare Rust versions
+      shell: bash
+      run: |
+        if [[ $TOOLCHAIN_VERSION < $RUST_VERSION ]]; then
+          echo "VERSION_MISMATCH=true" | tee -a $GITHUB_ENV
+        else
+          echo "VERSION_MISMATCH=false" | tee -a $GITHUB_ENV
+        fi
+
+    - uses: $/.github/actions/create-issue
+      if: env.VERSION_MISMATCH == 'true'
+      with:
+        token: ${{ inputs.token }}
+        title: "chore: rust toolchain needs an upgrade"
+        labels: debt,automated-issues
+        body: |
+          The rust version specified in `rust-toolchain.toml` (${{ env.TOOLCHAIN_VERSION }}) is out of date with the latest stable (${{ env.RUST_VERSION }}).
+
+          Check the [rust version check](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) workflow for details.
+
+          This issue was raised by the workflow at ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/workflow.

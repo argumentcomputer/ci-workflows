@@ -21,6 +21,10 @@ runs:
     - uses: raven-actions/actionlint@v2
       env:
         SHELLCHECK_OPTS: -S ${{ inputs.shellcheck-severity }}
+      with:
+        # actionlint doesn't know the `$/` self-repository syntax yet and
+        # misparses it as {owner}/{repo}@{ref}
+        flags: -ignore 'specifying action "\$/.+" in invalid format'
     # Note that `continue-on-error` is silently ignored on composite action
     # steps, so any zizmor finding fails the calling job. Suppress findings
     # that don't apply via `.github/zizmor.yml` or `# zizmor: ignore` comments.
