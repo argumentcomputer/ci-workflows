@@ -19,9 +19,13 @@ runs:
         packages: "${{ inputs.packages }}"
     - shell: bash
       run: rustup component add llvm-tools-preview
-    - uses: taiki-e/install-action@nextest
+    - uses: taiki-e/install-action@c3ec0de9ae7f1019cea21aa96aa0a895b9552063 # v2.87.9
+      with:
+        tool: nextest
     - name: Install cargo-llvm-cov
-      uses: taiki-e/install-action@cargo-llvm-cov
+      uses: taiki-e/install-action@c3ec0de9ae7f1019cea21aa96aa0a895b9552063 # v2.87.9
+      with:
+        tool: cargo-llvm-cov
     - name: Clean the workspace
       shell: bash
       run: cargo llvm-cov clean --workspace
@@ -32,6 +36,6 @@ runs:
       shell: bash
       run: cargo llvm-cov nextest --lcov --output-path lcov.info --profile ci --release --workspace
     - name: Upload coverage data to codecov
-      uses: codecov/codecov-action@v7
+      uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
       with:
         files: lcov.info

@@ -30,7 +30,7 @@ runs:
         packages: "${{ inputs.packages }}"
     # `git-auto-commit-action` below pushes to `gh-pages` with the credentials
     # this checkout persists, so they cannot be disabled here.
-    - uses: actions/checkout@v7 # zizmor: ignore[artipacked]
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Install criterion
       shell: bash
       run: |
@@ -45,7 +45,7 @@ runs:
         echo "GPU_ID=$(echo $GPU_NAME | awk '{ print $NF }')" | tee -a $GITHUB_ENV
     # Checkout gh-pages to check for cached bench result
     - name: Checkout gh-pages
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         ref: gh-pages
         path: gh-pages
@@ -63,7 +63,7 @@ runs:
         fi
       working-directory: ${{ github.workspace }}/gh-pages
     # Checkout base branch for comparative bench
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       if: steps.cached-bench.outputs.cached == 'false'
       with:
         ref: ${{ github.base_ref }}
@@ -110,7 +110,7 @@ runs:
       shell: bash
       run: cat "$BASE_COMMIT.json" "$GITHUB_SHA.json" | criterion-table > BENCHMARKS.md
     - name: Write bench on commit comment
-      uses: peter-evans/commit-comment@v4
+      uses: peter-evans/commit-comment@f6d60c65d05bb59f750fa51ad3de1d443ba0eb52 # v4.0.0
       with:
         body-path: BENCHMARKS.md
     # Check for a slowdown >= 10%. If so, open an issue but don't block merge.
@@ -158,7 +158,7 @@ runs:
       working-directory: ${{ github.workspace }}
     - name: Commit bench result to `gh-pages` branch if no regression
       if: steps.regression-check.outputs.regression != 'true'
-      uses: stefanzweifel/git-auto-commit-action@v7
+      uses: stefanzweifel/git-auto-commit-action@4a55954c782fc1ea30b9056cd3e7a2b40ca8887d # v7.2.0
       with:
         branch: gh-pages
         commit_message: '[automated] GPU Benchmark from PR #${{ env.PR_NUMBER }}'

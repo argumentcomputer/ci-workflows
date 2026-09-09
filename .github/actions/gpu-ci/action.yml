@@ -35,7 +35,9 @@ runs:
       if: inputs.packages != ''
       with:
         packages: "${{ inputs.packages }}"
-    - uses: taiki-e/install-action@nextest
+    - uses: taiki-e/install-action@c3ec0de9ae7f1019cea21aa96aa0a895b9552063 # v2.87.9
+      with:
+        tool: nextest
     - name: GPU tests
       shell: bash
       env:

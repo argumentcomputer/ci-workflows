@@ -17,7 +17,7 @@ runs:
     # Rust is incidental here, so provision a toolchain rather than requiring
     # one from the caller. Empty `rustflags` so the install doesn't fail on
     # `-D warnings`.
-    - uses: actions-rust-lang/setup-rust-toolchain@v1
+    - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
       with:
         rustflags: ''
     - name: Install typos binary
@@ -59,7 +59,7 @@ runs:
         FILE_PATHS=":!*\_body.md,$(git status --porcelain | awk -F. '{OFS=""; print "**/*."$NF}' | sort -u | paste -sd,)"
         echo "paths=$FILE_PATHS" | tee -a $GITHUB_OUTPUT
     - name: Create pull request
-      uses: peter-evans/create-pull-request@v8
+      uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
       if: steps.typo-check.outputs.typos == 'true'
       with:
         token: ${{ inputs.token }}

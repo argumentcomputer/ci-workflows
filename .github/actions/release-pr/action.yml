@@ -55,7 +55,7 @@ runs:
     # Rust is incidental here, so provision a toolchain rather than requiring
     # one from the caller. Empty `rustflags` so the install doesn't fail on
     # `-D warnings`.
-    - uses: actions-rust-lang/setup-rust-toolchain@v1
+    - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
       with:
         cache: false
         matcher: false
@@ -262,7 +262,7 @@ runs:
 
     # TODO: Also open PR to `dev` to bump version if this is the latest release
     - name: Create release PR
-      uses: peter-evans/create-pull-request@v8
+      uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
       with:
         token: ${{ inputs.token }}
         add-paths: |
