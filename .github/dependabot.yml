@@ -5,7 +5,7 @@ updates:
     # directories must be listed separately for their dependencies to be seen
     directories:
       - "/"
-      - "/.github/actions/**"
+      - "/.github/actions/*"
     schedule:
       interval: "weekly"
     cooldown:
