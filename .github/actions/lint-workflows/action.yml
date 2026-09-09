@@ -1,7 +1,9 @@
 # Assumes the repo under test is already checked out.
 name: Lint workflows
 
-description: Run actionlint and zizmor over a repo's workflows and composite actions
+description: >-
+  Run actionlint, shellcheck, zizmor and pinact over a repo's workflows and
+  composite actions
 
 inputs:
   # actionlint pipes every `run:` block through shellcheck, whose info- and
@@ -18,7 +20,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: raven-actions/actionlint@v2
+    - uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
       env:
         SHELLCHECK_OPTS: -S ${{ inputs.shellcheck-severity }}
       with:
@@ -31,10 +33,17 @@ runs:
         SEVERITY: ${{ inputs.shellcheck-severity }}
         ACTION_PATH: ${{ github.action_path }}
       run: python3 "$ACTION_PATH/shellcheck_actions.py"
+    # `fix: false` implies `skip_push`, so this only reports: no git
+    # commands, no write permissions. `verify` additionally rejects a
+    # pinned SHA whose version comment names a different release.
+    - uses: suzuki-shunsuke/pinact-action@896d595f299e71d65b9d28349d6956abe144390a # v3.0.0
+      with:
+        fix: "false"
+        verify: "true"
     # Note that `continue-on-error` is silently ignored on composite action
     # steps, so any zizmor finding fails the calling job. Suppress findings
     # that don't apply via `.github/zizmor.yml` or `# zizmor: ignore` comments.
-    - uses: zizmorcore/zizmor-action@v0.6.2
+    - uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
       with:
         config: ${{ inputs.zizmor-config }}
         # Mutually exclusive with `annotations`; the Security tab needs
