@@ -43,7 +43,7 @@ runs:
         if cargo --list | grep -q xclippy; then
           cargo xclippy -Dwarnings
         else
-          cargo clippy -Dwarnings
+          cargo clippy -- -Dwarnings
         fi
     - name: Doctests
       shell: bash

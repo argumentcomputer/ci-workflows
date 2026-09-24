@@ -30,7 +30,7 @@ runs:
         packages: "${{ inputs.packages }}"
     # `git-auto-commit-action` below pushes to `gh-pages` with the credentials
     # this checkout persists, so they cannot be disabled here.
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 # zizmor: ignore[artipacked]
     - name: Install criterion
       shell: bash
       run: |
@@ -38,7 +38,7 @@ runs:
         cargo install criterion-table
     - name: Set env vars
       shell: bash
-      run: |
+      run: | # zizmor: ignore[github-env]
         REPOSITORY_NAME=$(echo '${{ github.repository }}' | awk -F'/' '{ print toupper($2) }')
         echo "${REPOSITORY_NAME}_BENCH_OUTPUT=commit-comment" | tee -a $GITHUB_ENV
         echo "BASE_COMMIT=${{ github.event.merge_group.base_sha }}" | tee -a $GITHUB_ENV
@@ -138,7 +138,7 @@ runs:
       shell: bash
       env:
         HEAD_REF: ${{ github.event.merge_group.head_ref }}
-      run: |
+      run: | # zizmor: ignore[github-env]
         echo "PR_NUMBER=$(echo "$HEAD_REF" | sed -e 's/.*pr-\(.*\)-.*/\1/')" | tee -a $GITHUB_ENV
     - name: Open issue on regression
       if: steps.regression-check.outputs.regression == 'true'
