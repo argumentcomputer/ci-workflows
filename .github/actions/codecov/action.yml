@@ -1,0 +1,41 @@
+name: Generate and deploy Codecov results
+description: >-
+  Collect llvm-cov coverage data and upload it to Codecov. Assumes the repo
+  is already checked out with `submodules: recursive` and a Rust toolchain
+  with caching is already set up, e.g. via
+  `actions-rust-lang/setup-rust-toolchain`.
+
+inputs:
+  packages:
+    description: List of prerequisite Ubuntu packages, separated by whitespace
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - uses: $/.github/actions/install-deps
+      if: inputs.packages != ''
+      with:
+        packages: "${{ inputs.packages }}"
+    - shell: bash
+      run: rustup component add llvm-tools-preview
+    - uses: taiki-e/install-action@c3ec0de9ae7f1019cea21aa96aa0a895b9552063 # v2.87.9
+      with:
+        tool: nextest
+    - name: Install cargo-llvm-cov
+      uses: taiki-e/install-action@c3ec0de9ae7f1019cea21aa96aa0a895b9552063 # v2.87.9
+      with:
+        tool: cargo-llvm-cov
+    - name: Clean the workspace
+      shell: bash
+      run: cargo llvm-cov clean --workspace
+    - name: Build
+      shell: bash
+      run: cargo build --workspace --release
+    - name: Collect coverage data
+      shell: bash
+      run: cargo llvm-cov nextest --lcov --output-path lcov.info --profile ci --release --workspace
+    - name: Upload coverage data to codecov
+      uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+      with:
+        files: lcov.info
