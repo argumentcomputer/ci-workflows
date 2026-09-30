@@ -3,20 +3,20 @@ name: Generate and deploy crate docs
 on:
   workflow_call:
 
+permissions: {}
+
 jobs:
   docs:
     name: Generate crate documentation
     runs-on: ubuntu-latest
+    # `contents: write` for the `gh-pages` deploy
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v7
-        with:
-          repository: argumentcomputer/ci-workflows
-          persist-credentials: false
-      - uses: ./.github/actions/ci-env
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
       - name: Generate documentation
         env:
           RUSTDOCFLAGS: "--enable-index-page -Zunstable-options"
@@ -24,7 +24,7 @@ jobs:
         run: |
           cargo doc --workspace --no-deps
       - name: Deploy documentation
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./target/doc

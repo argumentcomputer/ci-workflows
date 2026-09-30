@@ -97,7 +97,7 @@ runs:
     # TODO: Add an automatic labeler for PRs based on title/commit prefix
     - name: Build Changelog
       id: github-release
-      uses: mikepenz/release-changelog-builder-action@v6
+      uses: mikepenz/release-changelog-builder-action@cb021f9b36a51a7c6f18e4679b6fa2cb77a1260c # v6.3.0
       with:
         mode: "COMMIT"
         configuration: ${{ inputs.changelog-config-file }}
@@ -111,7 +111,7 @@ runs:
       # `gh release` has no equivalent of `allowUpdates`, which re-releases an
       # existing tag rather than failing. Replacing this would mean
       # hand-rolling create-or-update logic in a release-critical path.
-      uses: ncipollo/release-action@v1 # zizmor: ignore[superfluous-actions]
+      uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0 # zizmor: ignore[superfluous-actions]
       with:
         body: ${{ steps.github-release.outputs.changelog }}
         tag: ${{ steps.get-tag.outputs.release-tag }}

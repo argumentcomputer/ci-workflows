@@ -3,13 +3,3 @@ self-hosted-runner:
   labels:
     - gpu-bench
     - gpu-ci
-
-paths:
-  .github/workflows/**/*.{yml,yaml}:
-    ignore:
-      # `actions/create-github-app-token@v3` renamed `app-id` to `client-id`
-      # and deprecated the former. actionlint's bundled metadata for the action
-      # predates the rename, so it reports the new input as unknown and the
-      # deprecated one as missing. Drop these once actionlint refreshes it.
-      - 'input "client-id" is not defined in action "actions/create-github-app-token'
-      - 'missing input "app-id" which is required by action "actions/create-github-app-token'

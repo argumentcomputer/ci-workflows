@@ -1,0 +1,37 @@
+name: Check documentation links
+description: >-
+  Run lychee over the repo's documentation links. If `fail-fast` is 'false',
+  opens an issue with the report instead of failing the job. Assumes the repo
+  is already checked out. The calling job needs `issues: write` when
+  `fail-fast` is 'false'.
+
+inputs:
+  fail-fast:
+    description: Whether to error on failure instead of opening an issue
+    required: false
+    default: 'true'
+  token:
+    description: GitHub token, needs `issues` write access when `fail-fast` is 'false'
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Link Checker
+      id: lychee
+      uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+      with:
+        fail: ${{ inputs.fail-fast }}
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+    # lychee stopped exporting `lychee_exit_code` to the environment in v2;
+    # the exit code is only available as a step output.
+    - name: Open issue on failure if `fail-fast` input is false
+      if: steps.lychee.outputs.exit_code != 0 && inputs.fail-fast != 'true'
+      uses: $/.github/actions/create-issue
+      with:
+        token: ${{ inputs.token }}
+        title: Link Checker Report
+        body-file: ./lychee/out.md
+        labels: report,automated issue
