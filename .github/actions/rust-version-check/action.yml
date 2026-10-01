@@ -28,12 +28,17 @@ runs:
 
     - name: Get latest stable Rust version
       shell: bash
-      run: echo "RUST_VERSION=$(rustup check | grep stable | awk '{print $(NF-2)}')" | tee -a $GITHUB_ENV # zizmor: ignore[github-env]
+      # `^stable-` selects the channel's own line; a toolchain pinned to a
+      # version number is listed as `<version>-<triple>` and must not match.
+      run: echo "RUST_VERSION=$(rustup check | grep '^stable-' | awk '{print $(NF-2)}')" | tee -a $GITHUB_ENV # zizmor: ignore[github-env]
 
     - name: Compare Rust versions
       shell: bash
       run: | # zizmor: ignore[github-env]
-        if [[ $TOOLCHAIN_VERSION < $RUST_VERSION ]]; then
+        # Numeric comparison: a string compare orders 1.100 before 1.99 and
+        # would stop reporting once the minor version reaches three digits.
+        oldest=$(printf '%s\n' "$TOOLCHAIN_VERSION" "$RUST_VERSION" | sort -V | head -n 1)
+        if [[ "$TOOLCHAIN_VERSION" != "$RUST_VERSION" && "$oldest" == "$TOOLCHAIN_VERSION" ]]; then
           echo "VERSION_MISMATCH=true" | tee -a $GITHUB_ENV
         else
           echo "VERSION_MISMATCH=false" | tee -a $GITHUB_ENV

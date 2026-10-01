@@ -3,7 +3,10 @@
 actionlint can't parse composite action manifests (rhysd/actionlint#46),
 so their scripts are extracted and batched through one shellcheck
 invocation here, with `${{ }}` expressions masked the way actionlint
-masks them in workflow scripts.
+masks them in workflow scripts. Covers the actions under `.github/actions`
+and a repository that is itself an action, i.e. has `action.yml` at its
+root; a manifest without `runs.steps` (a JavaScript or Docker action) has
+no scripts and is skipped.
 """
 
 import json
@@ -19,13 +22,17 @@ def main():
     severity = os.environ.get("SEVERITY", "warning")
     out = Path(tempfile.mkdtemp())
     scripts = []
-    for manifest in sorted(Path(".github/actions").glob("*/action.y*ml")):
+    manifests = sorted(Path(".").glob("action.y*ml")) + sorted(
+        Path(".github/actions").glob("*/action.y*ml")
+    )
+    for manifest in manifests:
         parsed = subprocess.run(
             ["yq", "-o=json", ".", manifest], check=True, text=True, stdout=subprocess.PIPE
         )
-        for i, step in enumerate(json.loads(parsed.stdout)["runs"]["steps"]):
+        steps = json.loads(parsed.stdout).get("runs", {}).get("steps") or []
+        for i, step in enumerate(steps):
             if step.get("shell") == "bash":
-                script = out / f"{manifest.parent.name}-{i}.sh"
+                script = out / f"{manifest.parent.resolve().name}-{i}.sh"
                 script.write_text(re.sub(r"\$\{\{.*?\}\}", "EXPR", step["run"]))
                 scripts.append(script)
     if scripts:
