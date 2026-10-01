@@ -189,7 +189,10 @@ runs:
           url="https://static.rust-lang.org/dist/channel-rust-$VERSION.toml"
         fi
         hash=$(nix store prefetch-file --json "$url" | jq -r .hash)
-        sed -i "/fromToolchainFile/,/}/ s|sha256 = \"sha256-[^\"]*\"|sha256 = \"$hash\"|" flake.nix
+        # The range opens at the call's brace, not at any `fromToolchainFile`
+        # mention: lean4-nix's call on a `${system}` line would otherwise
+        # open and close a range before the fenix block's `sha256`.
+        sed -i "/fromToolchainFile *{/,/sha256 *= *\"/ s|sha256 *= *\"sha256-[^\"]*\"|sha256 = \"$hash\"|" flake.nix
         if ! grep -qF "$hash" flake.nix; then
           echo "::error::flake.nix has no fromToolchainFile call with a sha256 to update"
           exit 1
