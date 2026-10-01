@@ -148,17 +148,27 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          github_access_token: ${{ github.token }}
+      # A flake in a git checkout only sees tracked files, so the fixture is
+      # staged for `nix flake update` to find it.
       - name: Pin an up-to-date toolchain with a placeholder fenix hash
         run: |
           printf '[toolchain]\nchannel = "stable"\n' > rust-toolchain.toml
           cat > flake.nix <<'EOF'
           {
-            rustToolchain = fenix.packages.x86_64-linux.fromToolchainFile {
-              file = ./rust-toolchain.toml;
-              sha256 = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+            inputs.fenix.url = "github:nix-community/fenix";
+            inputs.crane.url = "github:ipetkov/crane";
+            outputs = { fenix, ... }: {
+              rustToolchain = fenix.packages.x86_64-linux.fromToolchainFile {
+                file = ./rust-toolchain.toml;
+                sha256 = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+              };
             };
           }
           EOF
+          git add flake.nix rust-toolchain.toml
       - uses: $/.github/actions/rust-version
         id: current
         with:
@@ -173,6 +183,7 @@ jobs:
           [[ "$OUTDATED" != true ]]
           grep -qF 'channel = "stable"' rust-toolchain.toml
           grep -qF 'sha256-AAAA' flake.nix
+          [[ ! -e flake.lock ]]
       - name: Pin an outdated toolchain
         run: |
           printf '[toolchain]\nchannel = "1.70.0"\n' > rust-toolchain.toml
@@ -197,6 +208,8 @@ jobs:
           expected="sha256-$(curl -fsSL "https://static.rust-lang.org/dist/channel-rust-$NEW_VERSION.toml" | openssl dgst -sha256 -binary | base64 -w0)"
           [[ "$NIX_HASH" == "$expected" ]]
           grep -qF "sha256 = \"$expected\"" flake.nix
+          # `nix flake update fenix crane` locked both inputs
+          jq -e '.nodes.fenix.locked.rev and .nodes.crane.locked.rev' flake.lock
       # A nightly pin stays on the nightly channel, moving to the latest date
       - name: Pin an outdated nightly
         run: |

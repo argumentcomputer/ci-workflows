@@ -12,11 +12,11 @@ description: >-
   step. The calling job needs `contents` and `pull-requests` write
   permissions for `pr`. Assumes the repo is already checked out with
   `rust-toolchain.toml` at its root or in `workdir`, and that `rustup` is
-  installed. With `update-flake`, also rewrites the `sha256` of the fenix
-  `fromToolchainFile` call in the `flake.nix` next to `rust-toolchain.toml`,
-  which hashes the release's channel manifest; this needs only `curl` and
-  `openssl`, not Nix. Flake inputs are left alone, so `flake.lock` does not
-  change.
+  installed. With `update-flake`, also moves the `flake.nix` next to
+  `rust-toolchain.toml` to the release: the `sha256` of its fenix
+  `fromToolchainFile` call, which hashes the release's channel manifest, and
+  the `flake-inputs` in `flake.lock` via `nix flake update`. Requires Nix
+  2.19 or newer installed by the caller.
 
 inputs:
   workdir:
@@ -24,10 +24,17 @@ inputs:
     required: false
   update-flake:
     description:
-      Also update the `sha256` of fenix's `fromToolchainFile { file; sha256; }`
-      in `flake.nix` to the new release's
+      Also update `flake.nix` for the new release, i.e. the `sha256` of
+      fenix's `fromToolchainFile { file; sha256; }` and the `flake-inputs` in
+      `flake.lock`
     required: false
     default: 'false'
+  flake-inputs:
+    description:
+      Space-separated flake inputs to update alongside the toolchain when
+      `update-flake` is set; each must exist in the flake
+    required: false
+    default: fenix crane
   pr:
     description:
       Open a pull request with the update on an `update/rust-<toolchain>`
@@ -158,26 +165,30 @@ runs:
       working-directory: ${{ github.workspace }}/${{ inputs.workdir }}
     # fenix's `fromToolchainFile { file; sha256; }` fetches the release's
     # channel manifest with `pkgs.fetchurl` and reads it at evaluation time,
-    # so `sha256` is that manifest's hash, in the SRI form `nix hash` prints.
-    - name: Update the fenix `sha256` in `flake.nix`
+    # so `sha256` is that manifest's hash. The Rust build inputs move in the
+    # same PR so their updates ride on a change that CI has to validate anyway.
+    - name: Update `flake.nix` for the new release
       if: steps.compare-versions.outputs.outdated == 'true' && inputs.update-flake == 'true'
       id: nix-hash
       shell: bash
       env:
         CHANNEL: ${{ steps.channel.outputs.channel }}
         VERSION: ${{ steps.latest-rust.outputs.version }}
+        FLAKE_INPUTS: ${{ inputs.flake-inputs }}
       run: |
         if [[ "$CHANNEL" == "nightly" ]]; then
           url="https://static.rust-lang.org/dist/$VERSION/channel-rust-nightly.toml"
         else
           url="https://static.rust-lang.org/dist/channel-rust-$VERSION.toml"
         fi
-        hash="sha256-$(curl -fsSL --retry 3 "$url" | openssl dgst -sha256 -binary | base64 -w0)"
+        hash=$(nix store prefetch-file --json "$url" | jq -r .hash)
         sed -i "/fromToolchainFile/,/}/ s|sha256 = \"sha256-[^\"]*\"|sha256 = \"$hash\"|" flake.nix
         if ! grep -qF "$hash" flake.nix; then
           echo "::error::flake.nix has no fromToolchainFile call with a sha256 to update"
           exit 1
         fi
+        read -ra flake_inputs <<< "$FLAKE_INPUTS"
+        nix flake update "${flake_inputs[@]}" --refresh
         echo "hash=$hash" | tee -a "$GITHUB_OUTPUT"
       working-directory: ${{ github.workspace }}/${{ inputs.workdir }}
     # Only the files this action edits go into the PR, so unrelated changes in
@@ -189,6 +200,7 @@ runs:
       env:
         WORKDIR: ${{ inputs.workdir }}
         UPDATE_FLAKE: ${{ inputs.update-flake }}
+        FLAKE_INPUTS: ${{ inputs.flake-inputs }}
         CHANNEL: ${{ steps.channel.outputs.channel }}
         OLD_VERSION: ${{ steps.current-rust.outputs.version }}
         TOOLCHAIN: ${{ steps.update-toolchain.outputs.toolchain }}
@@ -199,7 +211,10 @@ runs:
         {
           echo "paths<<EOF"
           echo "${prefix}rust-toolchain.toml"
-          [[ "$UPDATE_FLAKE" == "true" ]] && echo "${prefix}flake.nix"
+          if [[ "$UPDATE_FLAKE" == "true" ]]; then
+            echo "${prefix}flake.nix"
+            echo "${prefix}flake.lock"
+          fi
           echo "EOF"
         } >> "$GITHUB_OUTPUT"
 
@@ -213,7 +228,7 @@ runs:
           echo "Updates \`rust-toolchain.toml\` from \`$OLD_VERSION\` to $release."
           if [[ -n "$NIX_HASH" ]]; then
             echo
-            echo "The fenix \`sha256\` in \`flake.nix\` moves with it, to \`$NIX_HASH\`."
+            echo "The fenix \`sha256\` in \`flake.nix\` moves with it, to \`$NIX_HASH\`, and the \`$FLAKE_INPUTS\` inputs are updated in \`flake.lock\`."
           fi
           echo
           echo "Opened by the [rust-version](https://github.com/argumentcomputer/ci-workflows/tree/main/.github/actions/rust-version) action from [this run]($RUN_URL). CI on this PR starts once a maintainer approves it."
