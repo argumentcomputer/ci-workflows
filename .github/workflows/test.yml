@@ -94,9 +94,10 @@ jobs:
       - uses: $/.github/actions/wasm
       - uses: $/.github/actions/unused-deps
 
-  # An up-to-date pin must not open an issue; an outdated pin must open one
-  # with the parsed versions. Issue calls go to the same stub `gh` as above.
-  rust-version-check:
+  # An up-to-date pin leaves both files alone; an outdated pin moves the
+  # channel and the fenix hash to the latest stable. The expected hash is
+  # recomputed here independently of the action's own code.
+  rust-version:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -104,35 +105,98 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install stub gh
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          github_access_token: ${{ github.token }}
+      # A flake in a git checkout only sees tracked files, so the fixture is
+      # staged for `nix flake update` to find it.
+      - name: Pin an up-to-date toolchain with a placeholder fenix hash
         run: |
-          mkdir -p "$RUNNER_TEMP/stub-bin"
-          cat > "$RUNNER_TEMP/stub-bin/gh" <<'EOF'
-          #!/usr/bin/env bash
-          echo "gh $*" >> "$GH_CALL_LOG"
-          case "$1 $2" in
-            "issue list") echo "[]" ;;
-            "issue create") echo "https://github.com/example/repo/issues/1" ;;
-          esac
+          printf '[toolchain]\nchannel = "stable"\n' > rust-toolchain.toml
+          cat > flake.nix <<'EOF'
+          {
+            inputs.fenix.url = "github:nix-community/fenix";
+            inputs.crane.url = "github:ipetkov/crane";
+            outputs = { fenix, ... }: {
+              rustToolchain = fenix.packages.x86_64-linux.fromToolchainFile {
+                file = ./rust-toolchain.toml;
+                sha256 = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+              };
+            };
+          }
           EOF
-          chmod +x "$RUNNER_TEMP/stub-bin/gh"
-          echo "$RUNNER_TEMP/stub-bin" >> "$GITHUB_PATH"
-          echo "GH_CALL_LOG=$RUNNER_TEMP/gh-calls.log" | tee -a "$GITHUB_ENV"
-      - name: Pin an up-to-date toolchain
-        run: printf '[toolchain]\nchannel = "stable"\n' > rust-toolchain.toml
-      - uses: $/.github/actions/rust-version-check
+          git add flake.nix rust-toolchain.toml
+      - uses: $/.github/actions/rust-version
+        id: current
+        with:
+          update-flake: 'true'
+      - name: Assert an up-to-date pin is left alone
+        env:
+          CHANNEL: ${{ steps.current.outputs.channel }}
+          OUTDATED: ${{ steps.current.outputs.outdated }}
+        run: |
+          set -x
+          [[ "$CHANNEL" == stable ]]
+          [[ "$OUTDATED" != true ]]
+          grep -qF 'channel = "stable"' rust-toolchain.toml
+          grep -qF 'sha256-AAAA' flake.nix
+          [[ ! -e flake.lock ]]
       - name: Pin an outdated toolchain
         run: |
           printf '[toolchain]\nchannel = "1.70.0"\n' > rust-toolchain.toml
           # Install it so `rustup show` reports it as the active version
           rustup toolchain install 1.70.0 --profile minimal
-      - uses: $/.github/actions/rust-version-check
-      - name: Assert only the outdated pin opened an issue
+      - uses: $/.github/actions/rust-version
+        id: outdated
+        with:
+          update-flake: 'true'
+      - name: Assert the channel and fenix hash moved to the latest stable
+        env:
+          OUTDATED: ${{ steps.outdated.outputs.outdated }}
+          OLD_VERSION: ${{ steps.outdated.outputs.old-version }}
+          NEW_VERSION: ${{ steps.outdated.outputs.new-version }}
+          NIX_HASH: ${{ steps.outdated.outputs.nix-hash }}
         run: |
-          touch "$GH_CALL_LOG"
-          cat "$GH_CALL_LOG"
           set -x
-          [[ "$(grep -cF -- "issue create" "$GH_CALL_LOG")" == 1 ]]
-          grep -qF -- "issue create --repo $GITHUB_REPOSITORY --title chore: rust toolchain needs an upgrade" "$GH_CALL_LOG"
-          # The parsed toolchain version made it into the issue body
-          grep -qF -- "(1.70.0)" "$GH_CALL_LOG"
+          [[ "$OUTDATED" == true ]]
+          [[ "$OLD_VERSION" == 1.70.0 ]]
+          [[ "$NEW_VERSION" == "$(rustc +stable --version | awk '{ print $2 }')" ]]
+          grep -qF "channel = \"$NEW_VERSION\"" rust-toolchain.toml
+          expected="sha256-$(curl -fsSL "https://static.rust-lang.org/dist/channel-rust-$NEW_VERSION.toml" | openssl dgst -sha256 -binary | base64 -w0)"
+          [[ "$NIX_HASH" == "$expected" ]]
+          grep -qF "sha256 = \"$expected\"" flake.nix
+          # `nix flake update fenix crane` locked both inputs
+          jq -e '.nodes.fenix.locked.rev and .nodes.crane.locked.rev' flake.lock
+      # A nightly pin stays on the nightly channel, moving to the latest date
+      - name: Pin an outdated nightly
+        run: printf '[toolchain]\nchannel = "nightly-2025-01-01"\n' > rust-toolchain.toml
+      - uses: $/.github/actions/rust-version
+        id: nightly
+      - name: Assert the channel moved to the latest nightly
+        env:
+          CHANNEL: ${{ steps.nightly.outputs.channel }}
+          OUTDATED: ${{ steps.nightly.outputs.outdated }}
+          OLD_VERSION: ${{ steps.nightly.outputs.old-version }}
+          NEW_VERSION: ${{ steps.nightly.outputs.new-version }}
+        run: |
+          set -x
+          [[ "$CHANNEL" == nightly ]]
+          [[ "$OUTDATED" == true ]]
+          [[ "$OLD_VERSION" == 2025-01-01 ]]
+          # rustc reports the commit date, the day before the nightly's own
+          # date, so the manifest is the independent source for the latter
+          [[ "$NEW_VERSION" == "$(curl -fsSL https://static.rust-lang.org/dist/channel-rust-nightly.toml | sed -n 's/^date = "\(.*\)"/\1/p')" ]]
+          grep -qF "channel = \"nightly-$NEW_VERSION\"" rust-toolchain.toml
+      # A beta pin is on neither supported channel and must fail before any edit
+      - name: Pin beta
+        run: printf '[toolchain]\nchannel = "beta"\n' > rust-toolchain.toml
+      - uses: $/.github/actions/rust-version
+        id: beta
+        continue-on-error: true
+      - name: Assert the beta pin was rejected untouched
+        env:
+          BETA_OUTCOME: ${{ steps.beta.outcome }}
+        run: |
+          set -x
+          [[ "$BETA_OUTCOME" == failure ]]
+          grep -qF 'channel = "beta"' rust-toolchain.toml

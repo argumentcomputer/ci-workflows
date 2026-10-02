@@ -1,22 +1,63 @@
-# Checks if `rust-toolchain.toml` has an outdated Rust version. If so, updates to the latest Rust release for either stable or nightly
-# Assumes `rust-toolchain.toml` exists at the base of the repo or an optional subdir
-# Returns the outdated test result, and old and new Rust versions as output
-#
-# The workflow caller is then responsible for making a commit or opening a PR with `peter-evans/create-pull-request`
-# Assumes the caller checks this action out in `${{ github.workspace }}/ci-workflows`, as this path is removed at the end of the action
-name: Rust version check
+name: Rust version update
 
-description: Check if crate has outdated Rust version, updating `rust-toolchain.toml` to latest release if so
+description: >-
+  Check whether `rust-toolchain.toml` pins an outdated Rust version and, if
+  so, rewrite its `channel` to the latest release on the same release
+  channel: a `nightly` pin moves to the latest nightly, `stable` or a
+  version number to the latest stable, and `beta` is rejected. Reports the
+  result and the old and new versions as outputs and,
+  with `pr`, opens a pull request with the change; otherwise the caller
+  commits it. A PR opened with the default `GITHUB_TOKEN` does not start CI
+  on its own; a maintainer approves the run, which is the intended review
+  step. The calling job needs `contents` and `pull-requests` write
+  permissions for `pr`. Assumes the repo is already checked out with
+  `rust-toolchain.toml` at its root or in `workdir`, and that `rustup` is
+  installed. With `update-flake`, also moves the `flake.nix` next to
+  `rust-toolchain.toml` to the release: the `sha256` of its fenix
+  `fromToolchainFile` call, which hashes the release's channel manifest, and
+  the `flake-inputs` in `flake.lock` via `nix flake update`. Requires Nix
+  2.19 or newer installed by the caller.
 
 inputs:
-  toolchain:
-    description: "Stable or nightly. Defaults to stable"
-    required: false
   workdir:
     description: "Optional subdirectory"
     required: false
+  update-flake:
+    description:
+      Also update `flake.nix` for the new release, i.e. the `sha256` of
+      fenix's `fromToolchainFile { file; sha256; }` and the `flake-inputs` in
+      `flake.lock`
+    required: false
+    default: 'false'
+  flake-inputs:
+    description:
+      Space-separated flake inputs to update alongside the toolchain when
+      `update-flake` is set; each must exist in the flake
+    required: false
+    default: fenix crane
+  pr:
+    description:
+      Open a pull request with the update on an `update/rust-<toolchain>`
+      branch, against the checked-out branch
+    required: false
+    default: 'false'
+  token:
+    description: GitHub token with `contents` and `pull-requests` write access
+    required: false
+    default: ${{ github.token }}
+  labels:
+    description: Comma-separated labels for the pull request
+    required: false
+    default: ''
+  reviewers:
+    description: Comma-separated reviewers for the pull request
+    required: false
+    default: ''
 
 outputs:
+  channel:
+    description: "`stable` or `nightly`, the release channel of the pinned toolchain"
+    value: ${{ steps.channel.outputs.channel }}
   outdated:
     description: "Boolean denoting whether `rust-toolchain.toml` is outdated"
     value: ${{ steps.compare-versions.outputs.outdated }}
@@ -26,35 +67,80 @@ outputs:
   new-version:
     description: "Latest Rust version"
     value: ${{ steps.latest-rust.outputs.version }}
+  nix-hash:
+    description: "New fenix `sha256`, when `flake.nix` was updated"
+    value: ${{ steps.nix-hash.outputs.hash }}
+  pr-number:
+    description: "Number of the pull request, when `pr` opened or updated one"
+    value: ${{ steps.pr.outputs.pull-request-number }}
+  pr-url:
+    description: "URL of the pull request, when `pr` opened or updated one"
+    value: ${{ steps.pr.outputs.pull-request-url }}
 
 runs:
   using: "composite"
   steps:
+    # The release channel comes from the pinned toolchain itself, so a nightly
+    # pin can never be rewritten to a stable version or the other way round.
+    - name: Detect the release channel
+      id: channel
+      shell: bash
+      run: |
+        pin=$(sed -n 's/^channel *= *"\(.*\)".*/\1/p' rust-toolchain.toml)
+        case "$pin" in
+          nightly*) channel=nightly ;;
+          stable | [0-9]*) channel=stable ;;
+          *)
+            echo "::error::rust-toolchain.toml pins '$pin'; only stable and nightly toolchains are updated"
+            exit 1
+            ;;
+        esac
+        echo "channel=$channel" | tee -a "$GITHUB_OUTPUT"
+      working-directory: ${{ github.workspace }}/${{ inputs.workdir }}
+    # `rustc --version` below must report the `rust-toolchain.toml` version
+    # while `rustup check` reports stable's latest release, so both must be
+    # installed; without stable, `rustup check` has no line to parse and the
+    # comparison silently reports up to date.
+    - name: Install latest stable
+      if: steps.channel.outputs.channel == 'stable'
+      shell: bash
+      run: rustup toolchain install stable --profile minimal
     - name: Parse `rust-toolchain.toml`
       shell: bash
       id: current-rust
       env:
-        TOOLCHAIN: ${{ inputs.toolchain }}
+        CHANNEL: ${{ steps.channel.outputs.channel }}
+      # A nightly is identified by its date, which a dated pin carries itself.
+      # A bare `nightly` pin only offers the installed build's commit date,
+      # the day before the nightly cut from it, so it reads as outdated and
+      # gets pinned. For stable, `rustc --version` honours the
+      # `rust-toolchain.toml` override and prints `rustc <version> (...)`.
       run: |
-        if [[ "$TOOLCHAIN" == "nightly" ]]; then
-          version=$(rustup show | grep rustc | awk -F'[()]| ' '{ print $(NF-1) }')
+        if [[ "$CHANNEL" == "nightly" ]]; then
+          version=$(sed -n 's/^channel *= *"nightly-\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\).*/\1/p' rust-toolchain.toml)
+          [[ -n "$version" ]] || version=$(rustc --version | awk -F'[()]| ' '{ print $(NF-1) }')
         else
-          version=$(rustup show | grep rustc | awk '{ printf $2 }')
+          version=$(rustc --version | awk '{ print $2 }')
         fi
-        echo "version=$version" | tee -a $GITHUB_OUTPUT
+        echo "version=$version" | tee -a "$GITHUB_OUTPUT"
       working-directory: ${{ github.workspace }}/${{ inputs.workdir }}
-    - name: Get latest `${{ inputs.toolchain }}` Rust release
+    - name: Get latest ${{ steps.channel.outputs.channel }} Rust release
       id: latest-rust
       shell: bash
       env:
-        TOOLCHAIN: ${{ inputs.toolchain }}
+        CHANNEL: ${{ steps.channel.outputs.channel }}
+      # The latest nightly's date comes from its channel manifest, the same
+      # file the fenix hash is taken from; rustup only reports commit dates.
+      # For stable, the anchored pattern selects the channel's own `rustup
+      # check` line: a toolchain pinned to a version is listed as
+      # `<version>-<triple>` and must not match.
       run: |
-        if [[ "$TOOLCHAIN" == "nightly" ]]; then
-          version=$(rustup check | grep "$TOOLCHAIN" | awk -F'[()]| ' '{print $(NF-1)}')
+        if [[ "$CHANNEL" == "nightly" ]]; then
+          version=$(curl -fsSL --retry 3 https://static.rust-lang.org/dist/channel-rust-nightly.toml | sed -n 's/^date = "\(.*\)"/\1/p')
         else
-          version=$(rustup check | grep stable | awk '{print $(NF-2)}')
+          version=$(rustup check | grep '^stable-' | awk '{print $(NF-2)}')
         fi
-        echo "version=$version" | tee -a $GITHUB_OUTPUT
+        echo "version=$version" | tee -a "$GITHUB_OUTPUT"
     - name: Compare Rust versions
       id: compare-versions
       shell: bash
@@ -66,24 +152,109 @@ runs:
           echo "outdated=true" | tee -a $GITHUB_OUTPUT
         fi
       working-directory: ${{ github.workspace }}/${{ inputs.workdir }}
-    - name: Update `Cargo.toml`
+    - name: Update `rust-toolchain.toml`
       if: steps.compare-versions.outputs.outdated == 'true'
+      id: update-toolchain
       shell: bash
       env:
-        TOOLCHAIN: ${{ inputs.toolchain }}
+        CHANNEL: ${{ steps.channel.outputs.channel }}
         LATEST_VERSION: ${{ steps.latest-rust.outputs.version }}
       run: |
-        if [[ "$TOOLCHAIN" == "nightly" ]]; then
-          sed -i "s/channel = .*/channel = \"nightly-$LATEST_VERSION\"/" rust-toolchain.toml
+        if [[ "$CHANNEL" == "nightly" ]]; then
+          toolchain="nightly-$LATEST_VERSION"
         else
-          sed -i "s/channel = .*/channel = \"$LATEST_VERSION\"/" rust-toolchain.toml
+          toolchain="$LATEST_VERSION"
         fi
+        sed -i "s/channel = .*/channel = \"$toolchain\"/" rust-toolchain.toml
         echo "Outdated Rust, updating"
         cat rust-toolchain.toml
+        echo "toolchain=$toolchain" | tee -a "$GITHUB_OUTPUT"
       working-directory: ${{ github.workspace }}/${{ inputs.workdir }}
-    - name: Clean up
+    # fenix's `fromToolchainFile { file; sha256; }` fetches the release's
+    # channel manifest with `pkgs.fetchurl` and reads it at evaluation time,
+    # so `sha256` is that manifest's hash. The Rust build inputs move in the
+    # same PR so their updates ride on a change that CI has to validate anyway.
+    - name: Update `flake.nix` for the new release
+      if: steps.compare-versions.outputs.outdated == 'true' && inputs.update-flake == 'true'
+      id: nix-hash
       shell: bash
       env:
-        WORKSPACE: ${{ github.workspace }}
+        CHANNEL: ${{ steps.channel.outputs.channel }}
+        VERSION: ${{ steps.latest-rust.outputs.version }}
+        FLAKE_INPUTS: ${{ inputs.flake-inputs }}
       run: |
-        rm -rf "$WORKSPACE/ci-workflows"
+        if [[ "$CHANNEL" == "nightly" ]]; then
+          url="https://static.rust-lang.org/dist/$VERSION/channel-rust-nightly.toml"
+        else
+          url="https://static.rust-lang.org/dist/channel-rust-$VERSION.toml"
+        fi
+        hash=$(nix store prefetch-file --json "$url" | jq -r .hash)
+        # The range opens at the call's brace, not at any `fromToolchainFile`
+        # mention: lean4-nix's call on a `${system}` line would otherwise
+        # open and close a range before the fenix block's `sha256`.
+        sed -i "/fromToolchainFile *{/,/sha256 *= *\"/ s|sha256 *= *\"sha256-[^\"]*\"|sha256 = \"$hash\"|" flake.nix
+        if ! grep -qF "$hash" flake.nix; then
+          echo "::error::flake.nix has no fromToolchainFile call with a sha256 to update"
+          exit 1
+        fi
+        read -ra flake_inputs <<< "$FLAKE_INPUTS"
+        nix flake update "${flake_inputs[@]}" --refresh
+        echo "hash=$hash" | tee -a "$GITHUB_OUTPUT"
+      working-directory: ${{ github.workspace }}/${{ inputs.workdir }}
+    # Only the files this action edits go into the PR, so unrelated changes in
+    # the caller's working tree never ride along.
+    - name: Describe the pull request
+      if: steps.compare-versions.outputs.outdated == 'true' && inputs.pr == 'true'
+      id: describe
+      shell: bash
+      env:
+        WORKDIR: ${{ inputs.workdir }}
+        UPDATE_FLAKE: ${{ inputs.update-flake }}
+        FLAKE_INPUTS: ${{ inputs.flake-inputs }}
+        CHANNEL: ${{ steps.channel.outputs.channel }}
+        OLD_VERSION: ${{ steps.current-rust.outputs.version }}
+        TOOLCHAIN: ${{ steps.update-toolchain.outputs.toolchain }}
+        NIX_HASH: ${{ steps.nix-hash.outputs.hash }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        prefix="${WORKDIR:+${WORKDIR%/}/}"
+        {
+          echo "paths<<EOF"
+          echo "${prefix}rust-toolchain.toml"
+          if [[ "$UPDATE_FLAKE" == "true" ]]; then
+            echo "${prefix}flake.nix"
+            echo "${prefix}flake.lock"
+          fi
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+        if [[ "$CHANNEL" == "nightly" ]]; then
+          release="\`$TOOLCHAIN\`"
+        else
+          release="[$TOOLCHAIN](https://github.com/rust-lang/rust/releases/tag/$TOOLCHAIN)"
+        fi
+        {
+          echo "body<<EOF"
+          echo "Updates \`rust-toolchain.toml\` from \`$OLD_VERSION\` to $release."
+          if [[ -n "$NIX_HASH" ]]; then
+            echo
+            echo "The fenix \`sha256\` in \`flake.nix\` moves with it, to \`$NIX_HASH\`, and the \`$FLAKE_INPUTS\` inputs are updated in \`flake.lock\`."
+          fi
+          echo
+          echo "Opened by the [rust-version](https://github.com/argumentcomputer/ci-workflows/tree/main/.github/actions/rust-version) action from [this run]($RUN_URL). CI on this PR starts once a maintainer approves it."
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+    - name: Open a pull request
+      if: steps.compare-versions.outputs.outdated == 'true' && inputs.pr == 'true'
+      id: pr
+      uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+      with:
+        token: ${{ inputs.token }}
+        add-paths: ${{ steps.describe.outputs.paths }}
+        branch: update/rust-${{ steps.update-toolchain.outputs.toolchain }}
+        delete-branch: true
+        commit-message: "chore: Update Rust to ${{ steps.update-toolchain.outputs.toolchain }}"
+        title: "chore: Update Rust to ${{ steps.update-toolchain.outputs.toolchain }}"
+        body: ${{ steps.describe.outputs.body }}
+        labels: ${{ inputs.labels }}
+        reviewers: ${{ inputs.reviewers }}
